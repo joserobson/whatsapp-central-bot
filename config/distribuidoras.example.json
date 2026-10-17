@@ -8,7 +8,7 @@
       "displayName": "HBA Distribuidora",
       "welcomeText": "Olá! Bem-vindo à HBA Distribuidora. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Olá! Vim pelo anúncio da HBA Distribuidora e gostaria de atendimento.",
+      "prefilledText": "Oi, vim pela HBA Distribuidora",
       "agents": []
     },
     {
@@ -17,7 +17,7 @@
       "displayName": "HB2A Distribuidora",
       "welcomeText": "Olá! Bem-vindo à HB2A Distribuidora. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Olá! Vim pelo anúncio da HB2A Distribuidora e gostaria de atendimento.",
+      "prefilledText": "Oi, vim pela HB2A Distribuidora",
       "agents": []
     },
     {
@@ -26,7 +26,7 @@
       "displayName": "Salbu Foods",
       "welcomeText": "Olá! Bem-vindo à Salbu Foods. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Olá! Vim pelo anúncio da Salbu Foods e gostaria de atendimento.",
+      "prefilledText": "Oi, vim pela Salbu Foods",
       "agents": []
     }
   ]

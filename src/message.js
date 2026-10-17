@@ -8,8 +8,11 @@ export function normalizeWebhook(body) {
 }
 
 export function buildReply(company) {
-  const lines = [company.welcomeText, ''];
-  for (const agent of company.agents) lines.push(`👤 ${agent.label}: https://wa.me/${agent.phoneE164}?text=${encodeURIComponent(company.prefilledText)}`);
-  lines.push('', company.closingText);
+  const lines = [`👋 *${company.welcomeText}*`, ''];
+  for (const agent of company.agents) {
+    lines.push(`🟢 *${agent.label}*`, `👉 https://wa.me/${agent.phoneE164}?text=${encodeURIComponent(company.prefilledText)}`, '');
+  }
+  lines.push(`💬 _${company.closingText}_`);
   return lines.join('\n');
 }
+
