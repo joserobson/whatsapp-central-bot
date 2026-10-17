@@ -1,0 +1,103 @@
+name: Deploy VPS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      VPS_DEPLOY_PATH: ${{ vars.VPS_DEPLOY_PATH }}
+      EVOLUTION_DOCKER_NETWORK: ${{ vars.EVOLUTION_DOCKER_NETWORK }}
+      EVOLUTION_BASE_URL: ${{ vars.EVOLUTION_BASE_URL }}
+      CONFIG_POLL_MS: ${{ vars.CONFIG_POLL_MS }}
+      WORKER_POLL_MS: ${{ vars.WORKER_POLL_MS }}
+      RETENTION_DAYS: ${{ vars.RETENTION_DAYS }}
+      EVOLUTION_API_KEY: ${{ secrets.EVOLUTION_API_KEY }}
+      WEBHOOK_SHARED_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
+      DISTRIBUIDORAS_JSON: ${{ secrets.DISTRIBUIDORAS_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Check deployment configuration
+        shell: bash
+        run: |
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_DEPLOY_PATH EVOLUTION_DOCKER_NETWORK EVOLUTION_BASE_URL EVOLUTION_API_KEY WEBHOOK_SHARED_SECRET DISTRIBUIDORAS_JSON; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing GitHub secret or variable: $name" >&2
+              exit 1
+            fi
+          done
+          [[ "$VPS_HOST" =~ ^[a-zA-Z0-9.-]+$ ]] || exit 1
+          [[ "$VPS_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]] || exit 1
+          [[ "$VPS_DEPLOY_PATH" =~ ^/[a-zA-Z0-9/_-]+$ ]] || exit 1
+          [[ "$EVOLUTION_DOCKER_NETWORK" =~ ^[a-zA-Z0-9_.-]+$ ]] || exit 1
+      - name: Prepare private deployment files
+        shell: bash
+        run: |
+          umask 077
+          mkdir -p ~/.ssh deploy-files
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = ('EVOLUTION_BASE_URL', 'EVOLUTION_API_KEY', 'WEBHOOK_SHARED_SECRET',
+                  'EVOLUTION_DOCKER_NETWORK', 'CONFIG_POLL_MS', 'WORKER_POLL_MS',
+                  'RETENTION_DAYS')
+          for key in keys:
+              if '\n' in os.environ[key] or '\r' in os.environ[key]:
+                  raise ValueError(f'{key} must contain one line')
+          config = json.loads(os.environ['DISTRIBUIDORAS_JSON'])
+          if config.get('schemaVersion') != 1 or not isinstance(config.get('companies'), list):
+              raise ValueError('DISTRIBUIDORAS_JSON is invalid')
+          Path('deploy-files/.env').write_text(
+              '\n'.join(f'{key}={os.environ[key]}' for key in keys) + '\n',
+              encoding='utf-8')
+          Path('deploy-files/distribuidoras.json').write_text(
+              json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Deploy on VPS
+        shell: bash
+        run: |
+          ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" bash -s -- "$VPS_DEPLOY_PATH" <<'REMOTE'
+          set -euo pipefail
+          path="$1"
+          if [[ -d "$path/.git" ]]; then
+            git -C "$path" pull --ff-only origin master
+          elif [[ ! -e "$path" ]]; then
+            mkdir -p "$(dirname "$path")"
+            git clone --branch master https://github.com/joserobson/whatsapp-central-bot.git "$path"
+          else
+            echo "Deployment path exists without a Git checkout" >&2
+            exit 1
+          fi
+          mkdir -p "$path/config"
+          REMOTE
+          scp -o StrictHostKeyChecking=yes deploy-files/.env "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/.env.next"
+          scp -o StrictHostKeyChecking=yes deploy-files/distribuidoras.json "$VPS_USER@$VPS_HOST:$VPS_DEPLOY_PATH/config/distribuidoras.json.next"
+          ssh -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" bash -s -- "$VPS_DEPLOY_PATH" <<'REMOTE'
+          set -euo pipefail
+          path="$1"
+          cd "$path"
+          chmod 600 .env.next
+          chmod 644 config/distribuidoras.json.next
+          mv .env.next .env
+          mv config/distribuidoras.json.next config/distribuidoras.json
+          docker compose -f compose.vps.yaml config --quiet
+          docker compose -f compose.vps.yaml up -d --build
+          docker compose -f compose.vps.yaml ps
+          REMOTE

@@ -1,0 +1,17 @@
+services:
+  whatsapp-central-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CONFIG_PATH: /app/config/distribuidoras.json
+      SQLITE_PATH: /app/data/state.sqlite
+    volumes:
+      - ./config:/app/config:ro
+      - bot-state:/app/data
+    ports:
+      - "127.0.0.1:3010:3000"
+    # Uma unica replica. O webhook fica acessivel somente neste host.
+
+volumes:
+  bot-state:

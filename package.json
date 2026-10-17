@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-central-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "fastify": "^5.6.1",
+    "libphonenumber-js": "^1.12.24"
+  }
+}
