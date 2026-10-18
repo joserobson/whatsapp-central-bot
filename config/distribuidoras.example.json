@@ -3,30 +3,30 @@
   "defaultCooldownHours": 24,
   "companies": [
     {
-      "instance": "hba-central",
+      "instance": "distribuidora-alfa",
       "enabled": false,
-      "displayName": "HBA Distribuidora",
-      "welcomeText": "Olá! Bem-vindo à HBA Distribuidora. Escolha um de nossos atendentes:",
+      "displayName": "Distribuidora Alfa",
+      "welcomeText": "Olá! Bem-vindo à Distribuidora Alfa. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Oi, vim pela HBA Distribuidora",
+      "prefilledText": "Oi, vim pela Distribuidora Alfa",
       "agents": []
     },
     {
-      "instance": "hb2a-central",
+      "instance": "distribuidora-beta",
       "enabled": false,
-      "displayName": "HB2A Distribuidora",
-      "welcomeText": "Olá! Bem-vindo à HB2A Distribuidora. Escolha um de nossos atendentes:",
+      "displayName": "Distribuidora Beta",
+      "welcomeText": "Olá! Bem-vindo à Distribuidora Beta. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Oi, vim pela HB2A Distribuidora",
+      "prefilledText": "Oi, vim pela Distribuidora Beta",
       "agents": []
     },
     {
-      "instance": "salbu-central",
+      "instance": "gama-alimentos",
       "enabled": false,
-      "displayName": "Salbu Foods",
-      "welcomeText": "Olá! Bem-vindo à Salbu Foods. Escolha um de nossos atendentes:",
+      "displayName": "Gama Alimentos",
+      "welcomeText": "Olá! Bem-vindo à Gama Alimentos. Escolha um de nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
-      "prefilledText": "Oi, vim pela Salbu Foods",
+      "prefilledText": "Oi, vim pela Gama Alimentos",
       "agents": []
     }
   ]

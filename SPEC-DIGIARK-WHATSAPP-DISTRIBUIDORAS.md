@@ -3,7 +3,7 @@
 **Status:** proposta para implementação e homologação
 
 **Versão:** 1.0 — 14/10/2026
-**Empresas:** HBA Distribuidora, HB2A Distribuidora e Salbu Foods
+**Empresas:** Distribuidora Alfa, Distribuidora Beta e Gama Alimentos
 
 ## 1. Objetivo
 
@@ -47,7 +47,7 @@ O objetivo é padronizar e agilizar o encaminhamento. **Não há promessa de red
 
 ## 3. Exemplo da mensagem
 
-> Olá! 👋 Bem-vindo à HBA Distribuidora.
+> Olá! 👋 Bem-vindo à Distribuidora Alfa.
 >
 > Para agilizar seu atendimento, escolha um dos nossos atendentes:
 >
@@ -98,43 +98,43 @@ Arquivo no host: `/opt/digiark/whatsapp-central/config/distribuidoras.json`
   "defaultCooldownHours": 24,
   "companies": [
     {
-      "instance": "hba-central",
+      "instance": "distribuidora-alfa",
       "enabled": true,
-      "displayName": "HBA Distribuidora",
-      "welcomeText": "Olá! 👋 Bem-vindo à HBA Distribuidora. Para agilizar seu atendimento, escolha um dos nossos atendentes:",
+      "displayName": "Distribuidora Alfa",
+      "welcomeText": "Olá! 👋 Bem-vindo à Distribuidora Alfa. Para agilizar seu atendimento, escolha um dos nossos atendentes:",
       "closingText": "Basta tocar no link do atendente desejado.",
       "agents": [
         { "label": "Atendente 1", "phoneE164": "55DDDNÚMERO1" },
         { "label": "Atendente 2", "phoneE164": "55DDDNÚMERO2" },
         { "label": "Atendente 3", "phoneE164": "55DDDNÚMERO3" }
       ],
-      "prefilledText": "Olá! Vim pelo anúncio da HBA Distribuidora e gostaria de atendimento."
+      "prefilledText": "Olá! Vim pelo anúncio da Distribuidora Alfa e gostaria de atendimento."
     },
     {
-      "instance": "hb2a-central",
+      "instance": "distribuidora-beta",
       "enabled": true,
-      "displayName": "HB2A Distribuidora",
-      "welcomeText": "Olá! 👋 Bem-vindo à HB2A Distribuidora. Escolha um de nossos atendentes:",
+      "displayName": "Distribuidora Beta",
+      "welcomeText": "Olá! 👋 Bem-vindo à Distribuidora Beta. Escolha um de nossos atendentes:",
       "closingText": "Toque no link para iniciar a conversa.",
       "agents": [
         { "label": "Atendente 1", "phoneE164": "55DDDNÚMERO1" },
         { "label": "Atendente 2", "phoneE164": "55DDDNÚMERO2" },
         { "label": "Atendente 3", "phoneE164": "55DDDNÚMERO3" }
       ],
-      "prefilledText": "Olá! Vim pelo anúncio da HB2A Distribuidora e gostaria de atendimento."
+      "prefilledText": "Olá! Vim pelo anúncio da Distribuidora Beta e gostaria de atendimento."
     },
     {
-      "instance": "salbu-central",
+      "instance": "gama-alimentos",
       "enabled": true,
-      "displayName": "Salbu Foods",
-      "welcomeText": "Olá! 👋 Bem-vindo à Salbu Foods. Escolha um de nossos atendentes:",
+      "displayName": "Gama Alimentos",
+      "welcomeText": "Olá! 👋 Bem-vindo à Gama Alimentos. Escolha um de nossos atendentes:",
       "closingText": "Toque no link para iniciar a conversa.",
       "agents": [
         { "label": "Atendente 1", "phoneE164": "55DDDNÚMERO1" },
         { "label": "Atendente 2", "phoneE164": "55DDDNÚMERO2" },
         { "label": "Atendente 3", "phoneE164": "55DDDNÚMERO3" }
       ],
-      "prefilledText": "Olá! Vim pelo anúncio da Salbu Foods e gostaria de atendimento."
+      "prefilledText": "Olá! Vim pelo anúncio da Gama Alimentos e gostaria de atendimento."
     }
   ]
 }
@@ -213,8 +213,8 @@ Eventos recomendados: `webhook_received`, `message_ignored`, `duplicate_ignored`
 
 ## 10. Critérios de aceite
 
-1. Ao receber a primeira mensagem direta de um contato novo na instância HBA, a aplicação responde com saudação e três links válidos da HBA.
-2. HB2A e Salbu respondem com textos e números próprios, sem vazamento de configuração entre empresas.
+1. Ao receber a primeira mensagem direta de um contato novo na instância Alfa, a aplicação responde com saudação e três links válidos da Distribuidora Alfa.
+2. Beta e Gama respondem com textos e números próprios, sem vazamento de configuração entre empresas.
 3. Alterar um telefone no JSON do host atualiza a próxima resposta **sem rebuild e sem reinício** do container.
 4. JSON inválido não derruba o serviço; configuração anterior continua ativa e erro é registrado.
 5. Mensagens repetidas do mesmo contato durante 24 horas não recebem nova saudação.
