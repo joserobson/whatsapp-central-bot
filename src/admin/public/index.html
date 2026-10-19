@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Central de atendimento · Distribuidoras</title>
+  <link rel="stylesheet" href="/admin/style.css">
+  <script type="module" src="/admin/app.js"></script>
+</head>
+<body>
+  <header><div class="brand">◈ <span>Central de atendimento</span></div><button id="logout" class="quiet" hidden>Sair</button></header>
+  <main>
+    <section id="login" class="card login" hidden>
+      <p class="eyebrow">ACESSO ADMINISTRATIVO</p><h1>Bem-vindo à central</h1><p>Entre para gerenciar mensagens e representantes.</p>
+      <form id="login-form"><label for="username">Usuário</label><input id="username" autocomplete="username" required maxlength="100"><label for="password">Senha</label><input id="password" type="password" autocomplete="current-password" required maxlength="256"><button type="submit">Entrar</button></form>
+    </section>
+    <div id="workspace" hidden>
+      <p class="eyebrow">CONFIGURAÇÃO DO ATENDIMENTO</p><h1>Mensagens e representantes</h1><p class="intro">Personalize a resposta de cada distribuidora e confira como ela será enviada.</p>
+      <div class="toolbar card"><div><label for="company">Distribuidora</label><select id="company"></select></div><button id="reload" class="secondary">Recarregar versão salva</button></div>
+      <div class="columns">
+        <form id="editor" class="card">
+          <h2>Mensagem automática</h2><p>Os clientes recebem a saudação e os três links de contato.</p>
+          <label for="welcomeText">Saudação e orientação</label><textarea id="welcomeText" rows="4" maxlength="1000" required></textarea><small id="error-welcomeText" class="field-error"></small>
+          <label for="prefilledText">Mensagem ao abrir o contato</label><textarea id="prefilledText" rows="2" maxlength="500" required></textarea><small id="error-prefilledText" class="field-error"></small>
+          <label for="closingText">Encerramento <span class="muted">(opcional)</span></label><textarea id="closingText" rows="2" maxlength="500"></textarea><small id="error-closingText" class="field-error"></small>
+          <div class="section-title"><h2>Representantes</h2><span class="badge">3 contatos</span></div><p>O nome é interno. A resposta exibe os links de WhatsApp.</p>
+          <div id="agents"></div>
+          <div class="actions"><button id="preview-button" type="button" class="secondary">Atualizar prévia</button><button id="save" type="submit">Salvar alterações</button></div>
+        </form>
+        <aside class="preview-panel"><div class="preview-heading"><h2>Prévia da mensagem</h2><span class="badge" id="preview-state">Versão salva</span></div><div class="chat"><div class="chat-heading"><span class="avatar">◈</span><div><strong id="preview-company"></strong><small>Resposta automática</small></div></div><div class="chat-body"><div class="bubble" id="preview" aria-live="polite"></div></div></div><p class="note">Prévia textual. A aparência dos links pode variar no WhatsApp. Nenhuma mensagem é enviada ao atualizar a prévia.</p><details id="comparison" hidden><summary>Versão atual salva — compare com seu rascunho</summary><pre id="saved-preview"></pre><button id="discard" class="secondary" type="button">Usar versão salva</button></details></aside>
+      </div>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>

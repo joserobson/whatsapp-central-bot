@@ -2,11 +2,14 @@
 
 Serviço Node.js que recebe eventos `MESSAGES_UPSERT` da Evolution API e responde à primeira mensagem direta de cada contato com três links de atendimento. O estado de deduplicação e cooldown fica em SQLite persistente. A [especificação](SPEC-DIGIARK-WHATSAPP-DISTRIBUIDORAS.md) detalha as regras.
 
+O painel administrativo do MVP está descrito na [SPEC-PAINEL-001](SPEC-PAINEL-DISTRIBUIDORAS-MVP.md). Ele roda no mesmo processo Fastify, porta e container do bot, com HTML/CSS/JavaScript local e sem novos serviços ou dependências.
+
 ## Arquivos e testes
 
 - `src/`: webhook Fastify, validação, SQLite e worker de envio.
 - `config/distribuidoras.example.json`: modelo publicável, com todas as empresas desativadas.
-- `config/distribuidoras.json`: configuração real, ignorada pelo Git e montada somente para leitura.
+- `config/distribuidoras.json`: configuração inicial privada, ignorada pelo Git e montada somente para leitura.
+- `/app/data/distribuidoras.json`: configuração ativa editável no volume `bot-state`; criada a partir do arquivo inicial somente quando ainda não existe.
 - `compose.yaml`: desenvolvimento local, com acesso em `127.0.0.1:3010`.
 - `compose.vps.yaml`: uma réplica na rede Docker privada da Evolution, sem porta publicada.
 
@@ -76,4 +79,34 @@ O Nginx Proxy Manager pode continuar publicando a Evolution, mas **não precisa 
 
 ## Operação
 
-O bot verifica alterações em `config/distribuidoras.json` periodicamente. Publique mudanças gravando um arquivo temporário no mesmo diretório e renomeando-o para o nome final; confira `config_reloaded` nos logs. Um JSON inválido preserva a última configuração válida. Ao atualizar o código, execute `git pull` e `docker compose -f compose.vps.yaml up -d --build`; faça backup do volume SQLite antes de mudanças operacionais. Falhas de envio ambíguas não são repetidas automaticamente: reconcilie na Evolution antes de alterar o estado manualmente.
+Com `CONFIG_WRITABLE_PATH` configurado (padrão dos Composes), o bot verifica o arquivo ativo `/app/data/distribuidoras.json` periodicamente. Mudanças no seed `config/distribuidoras.json` e no Secret `DISTRIBUIDORAS_JSON` não substituem edições já inicializadas. Sem `CONFIG_WRITABLE_PATH`, permanece a leitura legada de `CONFIG_PATH`, com painel desabilitado.
+
+Um JSON ativo inválido durante a execução preserva a última configuração válida e bloqueia gravações pelo painel até reparo. No boot, um arquivo ativo inválido deixa o serviço sem prontidão; ele não é substituído pelo seed. Edições manuais exigem pausa de gravações administrativas e publicação por arquivo temporário/rename. Não editar simultaneamente pelo painel e por ferramentas externas.
+
+Ao atualizar o código, execute `git pull` e `docker compose -f compose.vps.yaml up -d --build`; faça backup privado do JSON e SQLite do volume antes de mudanças operacionais. Nunca remova o volume para atualizar o serviço. Para rollback a uma versão legada, exporte primeiro o JSON ativo validado para o caminho usado por essa versão, evitando retornar aos contatos antigos do seed. Falhas de envio ambíguas não são repetidas automaticamente: reconcilie na Evolution antes de alterar o estado manualmente.
+
+## Painel administrativo
+
+1. Gere uma senha com `npm run admin:password` no terminal. A entrada fica oculta e exige confirmação. Guarde a linha `ADMIN_PASSWORD_HASH_B64` como segredo; base64 é transporte do hash, não criptografia adicional. O formato interno é `scrypt-v1$salt_hex$hash_hex`, com salt aleatório de 16 bytes e chave de 64 bytes. A aplicação também aceita `ADMIN_PASSWORD_HASH` diretamente, mas prefira a variante base64 para não interpolar `$` no Compose.
+2. Configure `ADMIN_ENABLED=true`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH_B64` e `ADMIN_ORIGIN=https://central.example.com` no `.env` privado. `ADMIN_ORIGIN` deve ser a origem exata, sem caminho ou barra final. No Actions, use Variables `ADMIN_ENABLED`, `ADMIN_ORIGIN` e Secrets `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH_B64`. Nenhuma senha vem configurada por padrão.
+3. No proxy HTTPS existente, encaminhe **somente `/admin/`** para `http://whatsapp-central-bot:3000/admin/`, preservando o prefixo. O proxy precisa alcançar a rede Docker existente. Não encaminhe a raiz, `/metrics`, `/health/*` ou webhook para acesso público. Não é necessário publicar porta do bot na VPS nem criar container adicional.
+4. Acesse `/admin/`, entre, escolha a distribuidora, edite, atualize a prévia e salve. Uma gravação concorrente retorna conflito; “Recarregar versão salva” permite comparar sem perder o rascunho. Sessões expiram após oito horas, logout ou reinício. Reiniciar requer novo login, mas preserva configuração.
+
+O editor mantém três representantes. Nomes são identificação interna; a resposta mostra saudação, três linhas `☎️ https://wa.me/...` e encerramento opcional. A prévia usa o texto efetivamente enviado. O bot não controla a aparência dos links no aplicativo WhatsApp. O cooldown continua em 24 horas por padrão; editar não dispara envio ou reinicia cooldown.
+
+Para desenvolvimento no host, forneça variáveis de ambiente com caminhos locais graváveis (`CONFIG_PATH`, `CONFIG_WRITABLE_PATH`, `SQLITE_PATH`), `ADMIN_ORIGIN=http://127.0.0.1:3000` e `ADMIN_ALLOW_HTTP=true`; rode `npm start`. O comando não carrega `.env` automaticamente; no Node pode usar `node --env-file=.env src/server.js` após ajustar os caminhos. HTTP administrativo é aceito apenas em loopback e fora de `NODE_ENV=production`. O container de produção exige HTTPS pelo proxy; um túnel isolado sem HTTPS não habilita seu cookie administrativo.
+
+O limitador de login usa o IP da conexão, sem confiar em `X-Forwarded-For`. Atrás do proxy, as cinco falhas em 15 minutos são compartilhadas pelos usuários que chegam por esse proxy. Não configurar confiança irrestrita em headers. Credenciais, sessões, conteúdo e telefones não devem aparecer em logs.
+
+### Domínio de teste com nip.io
+
+Para homologação, usar `central.<IP-PUBLICO-DA-VPS>.nip.io`. O nip.io resolve o IP embutido no nome, sem criar zona DNS própria. Exemplo documental: `central.203.0.113.10.nip.io` (substituir pelo IP real; esse IP de exemplo não serve para acesso).
+
+- URL do painel: `https://central.<IP-PUBLICO-DA-VPS>.nip.io/admin/`.
+- Variable `ADMIN_ORIGIN`: `https://central.<IP-PUBLICO-DA-VPS>.nip.io`, sem barra final.
+- Variable `ADMIN_ENABLED`: `true`; manter usuário e hash nos Secrets administrativos existentes.
+- No Nginx Proxy Manager existente, configurar o hostname exato e emitir certificado Let's Encrypt para ele; DNS automático não configura o proxy nem o certificado.
+- Encaminhar somente o prefixo `/admin/`, preservando-o, para o container `whatsapp-central-bot` na porta `3000`; retornar `404` nos demais caminhos desse hostname. Não usar encaminhamento irrestrito da raiz para o bot.
+- Conferir que o proxy alcança o bot pela rede Docker e que a validação HTTP-01 do certificado alcança o proxy na porta 80. O acesso ao painel usa HTTPS na porta 443. Nenhum serviço ou container adicional é necessário.
+
+Após o deploy e a configuração do proxy, validar login, edição, prévia, persistência após recriação e ausência de acesso público a `/metrics`, `/health/live` e `/webhooks/evolution`. Referência do serviço DNS: [nip.io](https://nip.io/).

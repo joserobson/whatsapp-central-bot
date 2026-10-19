@@ -5,6 +5,7 @@ services:
     env_file: .env
     environment:
       CONFIG_PATH: /app/config/distribuidoras.json
+      CONFIG_WRITABLE_PATH: /app/data/distribuidoras.json
       SQLITE_PATH: /app/data/state.sqlite
     volumes:
       - ./config:/app/config:ro

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import { normalizeWebhook } from './message.js';
+import { registerAdmin } from './admin/routes.js';
 
 function authorized(actual, expected) {
   if (typeof actual !== 'string' || !expected) return false;
@@ -9,8 +10,9 @@ function authorized(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function createApp({ state, config, worker, webhookSecret, logger = false }) {
+export function createApp({ state, config, worker, webhookSecret, logger = false, admin }) {
   const app = Fastify({ logger, bodyLimit: 64 * 1024 });
+  if (admin?.enabled) registerAdmin(app, config, admin);
   app.get('/health/live', async () => ({ status: 'ok' }));
   app.get('/health/ready', async (_request, reply) => {
     if (!config.active || !state.healthy()) return reply.code(503).send({ status: 'unavailable' });

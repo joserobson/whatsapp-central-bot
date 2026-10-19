@@ -118,5 +118,28 @@ test('tres nomes podem compartilhar telefone somente com permissao explicita', (
   assert.doesNotThrow(() => validateConfig(config));
   const reply = buildReply(company);
   assert.equal((reply.match(/https:\/\/wa\.me\/553588071390\?/g) ?? []).length, 3);
-  for (const label of ['Ana (teste)', 'Bruno (teste)', 'Carla (teste)']) assert.ok(reply.includes(label));
+  for (const label of ['Ana (teste)', 'Bruno (teste)', 'Carla (teste)']) assert.ok(!reply.includes(label));
+});
+
+test('edição administrativa altera próximo envio elegível sem apagar cooldown ou deduplicação', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'panel-worker-'));
+  const path = join(dir, 'config.json');
+  await writeFile(path, JSON.stringify({ schemaVersion: 1, defaultCooldownHours: 24, companies }));
+  const config = createConfigStore(path, logger);
+  await config.reload();
+  const state = createState(join(dir, 'state.sqlite'));
+  const sent = [];
+  const worker = createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'test', send: async (_url, options) => { sent.push(JSON.parse(options.body)); return { ok: true }; } });
+  const event = { instance: companies[0].instance, messageId: 'first', contact: '5511988887777' };
+  try {
+    state.enqueue(event); await worker.tick();
+    const { agents, prefilledText } = companies[0];
+    await config.update(event.instance, { welcomeText: 'Saudação nova', closingText: '', agents, prefilledText }, config.version);
+    assert.equal(state.enqueue(event), false);
+    state.enqueue({ ...event, messageId: 'cooldown' }); await worker.tick();
+    assert.equal(sent.length, 1);
+    state.enqueue({ ...event, contact: '5511988886666', messageId: 'new-contact' }); await worker.tick();
+    assert.equal(sent.length, 2);
+    assert.ok(sent[1].text.startsWith('Saudação nova\n\n☎️'));
+  } finally { state.close(); await rm(dir, { recursive: true, force: true }); }
 });

@@ -15,11 +15,21 @@ const logger = {
   error: item => console.error(JSON.stringify(item))
 };
 await mkdir(dirname(process.env.SQLITE_PATH), { recursive: true });
-const config = createConfigStore(process.env.CONFIG_PATH, logger);
+const config = createConfigStore(process.env.CONFIG_WRITABLE_PATH || process.env.CONFIG_PATH, logger,
+  process.env.CONFIG_WRITABLE_PATH ? { seedPath: process.env.CONFIG_PATH } : {});
 await config.reload();
 const state = createState(process.env.SQLITE_PATH);
 const worker = createWorker({ state, config, baseUrl: process.env.EVOLUTION_BASE_URL, apiKey: process.env.EVOLUTION_API_KEY, logger });
-const app = createApp({ state, config, worker, webhookSecret: process.env.WEBHOOK_SHARED_SECRET });
+const adminEnabled = process.env.ADMIN_ENABLED === 'true';
+if (adminEnabled && !process.env.CONFIG_WRITABLE_PATH) throw new Error('CONFIG_WRITABLE_PATH obrigatorio para o painel');
+const admin = {
+  enabled: adminEnabled,
+  username: process.env.ADMIN_USERNAME,
+  passwordHash: process.env.ADMIN_PASSWORD_HASH_B64 ? Buffer.from(process.env.ADMIN_PASSWORD_HASH_B64, 'base64').toString('utf8') : process.env.ADMIN_PASSWORD_HASH,
+  origin: process.env.ADMIN_ORIGIN,
+  secure: process.env.NODE_ENV === 'production' || process.env.ADMIN_ALLOW_HTTP !== 'true'
+};
+const app = createApp({ state, config, worker, webhookSecret: process.env.WEBHOOK_SHARED_SECRET, admin });
 const interval = (callback, ms) => { const timer = setInterval(callback, ms); timer.unref(); return timer; };
 interval(() => void config.reload(), Number(process.env.CONFIG_POLL_MS) || 5000);
 interval(() => void worker.tick(), Number(process.env.WORKER_POLL_MS) || 1000);

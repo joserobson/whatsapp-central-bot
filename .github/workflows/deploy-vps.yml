@@ -22,6 +22,10 @@ jobs:
       EVOLUTION_API_KEY: ${{ secrets.EVOLUTION_API_KEY }}
       WEBHOOK_SHARED_SECRET: ${{ secrets.WEBHOOK_SHARED_SECRET }}
       DISTRIBUIDORAS_JSON: ${{ secrets.DISTRIBUIDORAS_JSON }}
+      ADMIN_ENABLED: ${{ vars.ADMIN_ENABLED }}
+      ADMIN_ORIGIN: ${{ vars.ADMIN_ORIGIN }}
+      ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+      ADMIN_PASSWORD_HASH_B64: ${{ secrets.ADMIN_PASSWORD_HASH_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,11 +61,17 @@ jobs:
 
           keys = ('EVOLUTION_BASE_URL', 'EVOLUTION_API_KEY', 'WEBHOOK_SHARED_SECRET',
                   'EVOLUTION_DOCKER_NETWORK', 'CONFIG_POLL_MS', 'WORKER_POLL_MS',
-                  'RETENTION_DAYS')
+                  'RETENTION_DAYS', 'ADMIN_ENABLED', 'ADMIN_ORIGIN',
+                  'ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH_B64')
           for key in keys:
               if '\n' in os.environ[key] or '\r' in os.environ[key]:
                   raise ValueError(f'{key} must contain one line')
           config = json.loads(os.environ['DISTRIBUIDORAS_JSON'])
+          if os.environ['ADMIN_ENABLED'] == 'true':
+              if not all(os.environ[k] for k in ('ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH_B64', 'ADMIN_ORIGIN')):
+                  raise ValueError('Administrative configuration is incomplete')
+              if not os.environ['ADMIN_ORIGIN'].startswith('https://'):
+                  raise ValueError('ADMIN_ORIGIN must use HTTPS')
           if config.get('schemaVersion') != 1 or not isinstance(config.get('companies'), list):
               raise ValueError('DISTRIBUIDORAS_JSON is invalid')
           Path('deploy-files/.env').write_text(

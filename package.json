@@ -6,7 +6,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "admin:password": "node scripts/admin-password.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",
