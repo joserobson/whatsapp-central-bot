@@ -40,6 +40,7 @@ export function createState(path) {
   return {
     enqueue(event) { const now = Date.now(); return insert.run(event.instance, event.messageId, event.contact, now, now, now).changes === 1; },
     claim,
+    clearCooldown(instance, contact) { return db.prepare('DELETE FROM cooldowns WHERE instance = ? AND contact = ?').run(instance, contact).changes; },
     sent(event, now) { db.transaction(() => { sent.run(now, event.instance, event.message_id); markCooldown.run(event.instance, event.contact, now); })(); },
     failed(event, error, now) { const exhausted = event.attempts >= 3; const backoff = Math.min(60_000, 2 ** event.attempts * 1000); failure.run(exhausted ? 'dead' : 'failed', now + backoff, now, error, event.instance, event.message_id); },
     ambiguous(event, now) { failure.run('ambiguous', now, now, 'delivery_uncertain', event.instance, event.message_id); },

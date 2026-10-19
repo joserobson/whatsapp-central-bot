@@ -32,8 +32,9 @@ export function configError(statusCode, message) {
 }
 
 export function editedCompany(company, fields) {
-  const allowed = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
-  if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).length !== allowed.length || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
+  const required = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
+  const allowed = [...required, 'cooldownHours', 'instance'];
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields) || required.some(key => !Object.hasOwn(fields, key)) || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
   if (!Array.isArray(fields.agents) || fields.agents.length !== 3) throw configError(422, 'three_agents_required');
   if (fields.agents.some(agent => !agent || Object.keys(agent).length !== 2 || Object.keys(agent).some(key => !['label', 'phoneE164'].includes(key)))) throw configError(400, 'invalid_agent_fields');
   const candidate = { ...company, ...structuredClone(fields) };
@@ -95,7 +96,8 @@ export function createConfigStore(path, logger = console, { seedPath, io = { ope
       if (index < 0) throw configError(404, 'company_not_found');
       const candidate = structuredClone(active);
       candidate.companies[index] = editedCompany(candidate.companies[index], fields);
-      validateConfig(candidate);
+      try { validateConfig(candidate); }
+      catch { throw configError(422, 'invalid_configuration_or_duplicate_instance'); }
       const bytes = JSON.stringify(candidate, null, 2) + '\n';
       try { await publish(bytes); } catch { throw configError(503, 'configuration_write_failed'); }
       active = candidate;

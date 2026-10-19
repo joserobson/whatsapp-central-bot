@@ -98,3 +98,22 @@ test('reload coordenado não reativa versão anterior; campos e números inváli
     }
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('troca de instância persiste, rejeita duplicidade e preserva outras distribuidoras', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'admin-instance-'));
+  const path = join(dir, 'config.json');
+  try {
+    await writeFile(path, JSON.stringify({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company, { ...company, instance: 'beta' }] }));
+    const store = createConfigStore(path, logger);
+    await store.reload();
+    const fields = { instance: 'nova-evolution', welcomeText: company.welcomeText, closingText: '', prefilledText: company.prefilledText, agents: company.agents };
+    for (const instance of ['beta', '', 'com espaço', '../invalid']) await assert.rejects(store.update('alfa', { ...fields, instance }, store.version), { statusCode: 422 });
+    await store.update('alfa', fields, store.version);
+    assert.equal(store.company('alfa'), undefined);
+    assert.equal(store.company('nova-evolution').displayName, company.displayName);
+    assert.equal(store.company('beta').instance, 'beta');
+    const restarted = createConfigStore(path, logger);
+    await restarted.reload();
+    assert.equal(restarted.company('nova-evolution').instance, 'nova-evolution');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

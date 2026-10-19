@@ -19,6 +19,38 @@ const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = fa
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
 });
 
+test('intervalo reduzido e liberação permitem novas mensagens sem reenviar histórico', async () => {
+  const state = createState(':memory:');
+  let time = 10_000_000;
+  const company = { ...companies[0], cooldownHours: 24 };
+  const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+  let sends = 0;
+  const worker = createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'key', now: () => time, send: async () => { sends++; return { ok: true }; } });
+  const event = id => ({ instance: company.instance, messageId: id, contact: '5511988887777' });
+  // Enqueue uses wall time; keep the worker clock aligned with it.
+  time = Date.now();
+  try {
+    state.enqueue(event('first')); time = Date.now(); await worker.tick();
+    assert.equal(sends, 1);
+    time += 3_600_000;
+    state.enqueue(event('blocked')); await worker.tick();
+    assert.equal(sends, 1);
+    company.cooldownHours = 1;
+    state.enqueue(event('reduced')); await worker.tick();
+    assert.equal(sends, 2);
+    state.enqueue(event('still-blocked')); await worker.tick();
+    assert.equal(sends, 2);
+    assert.equal(state.clearCooldown(company.instance, event('').contact), 1);
+    await worker.tick();
+    assert.equal(sends, 2);
+    assert.equal(state.enqueue(event('first')), false);
+    state.enqueue(event('released')); await worker.tick();
+    assert.equal(sends, 3);
+    assert.equal(state.inspect(company.instance, 'blocked').status, 'skipped');
+    assert.equal(state.inspect(company.instance, 'still-blocked').status, 'skipped');
+  } finally { state.close(); }
+});
+
 test('webhook, cooldown, deduplicacao, isolamento e reinicio', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'digiark-'));
   const path = join(dir, 'config.json');

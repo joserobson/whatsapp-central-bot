@@ -1,6 +1,9 @@
-export const hasChanges = (original, draft) => JSON.stringify(original) !== JSON.stringify(draft);
+const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+export const hasChanges = (original, draft) => canonical(original) !== canonical(draft);
 export function validateDraft(draft) {
   const errors = {};
+  if (draft.instance !== undefined && (typeof draft.instance !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 letras, números, hífen ou sublinhado.';
+  if (draft.cooldownHours !== undefined && (!Number.isInteger(draft.cooldownHours) || draft.cooldownHours < 1 || draft.cooldownHours > 720)) errors.cooldownHours = 'Informe um número inteiro de 1 a 720 horas.';
   for (const [key, limit] of Object.entries({ welcomeText: 1000, closingText: 500, prefilledText: 500 })) {
     if ((key !== 'closingText' && !draft[key].trim()) || draft[key].length > limit) errors[key] = `Preencha com até ${limit} caracteres.`;
   }

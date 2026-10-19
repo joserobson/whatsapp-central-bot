@@ -4,7 +4,7 @@ import { configError, editedCompany } from '../config.js';
 import { buildReply } from '../message.js';
 
 export function registerAdmin(app, config, options) {
-  const { username, passwordHash, origin, now = Date.now, secure = true } = options;
+  const { username, passwordHash, origin, state, now = Date.now, secure = true } = options;
   if (!username || username.length > 100 || !validHash(passwordHash) || !origin) throw new Error('Configuracao administrativa invalida');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['http:', 'https:'].includes(parsedOrigin.protocol) || (secure && parsedOrigin.protocol !== 'https:')) throw new Error('ADMIN_ORIGIN invalida');
@@ -81,7 +81,15 @@ export function registerAdmin(app, config, options) {
     admin.get('/api/companies/:instance', async (request, reply) => {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { welcomeText, closingText, prefilledText, agents } });
+      const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, welcomeText, closingText, prefilledText, agents, cooldownHours } });
+    });
+    admin.post('/api/companies/:instance/cooldown/reset', async request => {
+      getCompany(request.params.instance);
+      const body = request.body;
+      if (!body || Object.keys(body).length !== 1 || typeof body.contact !== 'string' || !/^\d{8,15}$/.test(body.contact)) throw configError(422, 'invalid_contact');
+      state.clearCooldown(request.params.instance, body.contact);
+      return { status: 'released' };
     });
     admin.post('/api/companies/:instance/preview', async request => ({ text: buildReply(editedCompany(getCompany(request.params.instance), request.body)) }));
     admin.put('/api/companies/:instance', async (request, reply) => {

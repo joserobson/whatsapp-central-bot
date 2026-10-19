@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createApp } from '../src/app.js';
 import { createConfigStore } from '../src/config.js';
 import { hashPassword } from '../src/admin/auth.js';
+import { createState } from '../src/state.js';
 
 test('login, sessão, CSRF, edição, prévia, expiração e logout', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'panel-'));
@@ -15,7 +16,8 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
   const config = createConfigStore(path, { info() {}, error() {} });
   await config.reload();
   let time = 0;
-  const app = createApp({ config, state: { healthy: () => true }, worker: { snapshot: () => ({}) }, admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin: 'https://panel.example', now: () => time } });
+  const state = createState(join(dir, 'state.sqlite'));
+  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin: 'https://panel.example', now: () => time } });
   const origin = 'https://panel.example';
   const login = () => app.inject({ method: 'POST', url: '/admin/api/login', headers: { origin }, payload: { username: 'admin', password: 'a-long-test-password' } });
   try {
@@ -28,10 +30,23 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     const cookie = result.headers['set-cookie'].split(';')[0];
     const csrf = result.json().csrf;
     const headers = { cookie, origin, 'x-csrf-token': csrf };
+    const reset = '/admin/api/companies/alfa/cooldown/reset';
+    const release = { contact: '5511988887777' };
+    for (const instance of ['alfa', 'beta']) state.sent({ instance, message_id: 'sent', contact: release.contact }, Date.now());
+    assert.equal((await app.inject({ method: 'POST', url: reset, headers: { origin }, payload: release })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url: reset, headers: { cookie, origin }, payload: release })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: reset, headers: { ...headers, origin: 'https://other.example' }, payload: release })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: reset, headers, payload: { contact: 'invalid' } })).statusCode, 422);
+    assert.equal((await app.inject({ method: 'POST', url: reset.replace('alfa', 'missing'), headers, payload: release })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'POST', url: reset, headers, payload: release })).statusCode, 200);
+    assert.equal(state.clearCooldown('alfa', release.contact), 0);
+    assert.equal(state.clearCooldown('beta', release.contact), 1);
     assert.equal((await app.inject({ url: '/admin/api/session', headers })).json().csrf, csrf);
     assert.equal((await app.inject({ url: '/admin/api/companies', headers })).json().companies.length, 1);
     const current = await app.inject({ url: '/admin/api/companies/alfa', headers });
-    const payload = { ...current.json().fields, welcomeText: '<img src=x onerror=alert(1)>' };
+    assert.equal(current.json().fields.cooldownHours, 24);
+    const payload = { ...current.json().fields, cooldownHours: 1, welcomeText: '<img src=x onerror=alert(1)>' };
+    for (const cooldownHours of [0, 721, 1.5, '1', null]) assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload: { ...payload, cooldownHours } })).statusCode, 422);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { cookie, origin }, payload })).statusCode, 403);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, origin: 'https://other.example' }, payload })).statusCode, 403);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload: { ...payload, enabled: false } })).statusCode, 400);
@@ -43,6 +58,9 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.ok(preview.json().text.startsWith(payload.welcomeText));
     const updated = await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload });
     assert.equal(updated.statusCode, 200);
+    const restarted = createConfigStore(path, { info() {}, error() {} });
+    await restarted.reload();
+    assert.equal(restarted.company('alfa').cooldownHours, 1);
     assert.notEqual(updated.headers.etag, current.headers.etag);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload })).statusCode, 412);
     assert.equal((await app.inject({ method: 'POST', url: '/admin/api/logout', headers, payload: {} })).statusCode, 204);
@@ -59,7 +77,7 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.equal((await app.inject('/admin/app.js')).statusCode, 200);
     assert.equal((await app.inject('/admin/model.js')).statusCode, 200);
     assert.equal((await app.inject('/admin/style.css')).statusCode, 200);
-  } finally { await app.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { await app.close(); state.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('painel desabilitado não registra rotas; credenciais inválidas impedem habilitação', () => {

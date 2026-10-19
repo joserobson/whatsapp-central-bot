@@ -9,7 +9,7 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
+const draft = () => ({ instance: $("instance").value, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
 const dirty = () => original && hasChanges(original, draft());
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -26,12 +26,12 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
   return { data: response.status === 204 ? null : await response.json(), etag: response.headers.get('etag') };
 }
 function fill(fields) {
-  for (const key of ['welcomeText', 'closingText', 'prefilledText']) $(key).value = fields[key];
+  for (const key of ['instance', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
 function validate() {
   const errors = validateDraft(draft());
-  for (const id of ['welcomeText', 'closingText', 'prefilledText', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
+  for (const id of ['instance', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
     $(id).setAttribute('aria-invalid', String(Boolean(errors[id])));
     $(`error-${id}`).textContent = errors[id] ?? '';
   }
@@ -52,6 +52,7 @@ async function preview() {
 async function load(instance) {
   const result = await api(`companies/${encodeURIComponent(instance)}`);
   selected = instance; original = result.data.fields; version = result.etag;
+  $('release-contact').value = ''; $('release-status').textContent = '';
   $('company').value = instance;
   $('preview-company').textContent = $('company').selectedOptions[0].textContent;
   fill(original); $('comparison').hidden = true; latest = null;
@@ -69,9 +70,9 @@ async function list() {
 async function run(task) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('button, select, #editor input, #editor textarea').forEach(element => { element.disabled = true; });
+  document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = true; });
   try { await task(); } catch (error) { status(error.message || errorMessage(503), true); }
-  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea').forEach(element => { element.disabled = false; }); }
+  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = false; }); }
 }
 for (let n = 0; n < 3; n++) {
   const block = document.createElement('div'); block.className = 'agent';
@@ -93,6 +94,8 @@ $('editor').addEventListener('submit', event => { event.preventDefault(); if (!v
   void run(async () => {
     const fields = draft();
     const result = await api(`companies/${encodeURIComponent(selected)}`, { method: 'PUT', payload: fields, etag: version });
+    const option = Array.from($("company").options).find(item => item.value === selected);
+    option.value = fields.instance; selected = fields.instance; $("company").value = selected;
     original = fields; version = result.etag; $('comparison').hidden = true; latest = null;
     await preview(); status('Alterações salvas e aplicadas.');
   });
@@ -110,6 +113,17 @@ $('discard').addEventListener('click', () => { if (!latest || !confirm('Descarta
 $('logout').addEventListener('click', () => { if (dirty() && !confirm('Sair e descartar as alterações pendentes?')) return;
   void run(async () => { await api('logout', { method: 'POST' }); original = null; selected = null; csrf = null; $('editor').reset(); $('preview').textContent = ''; showLogin(); status('Sessão encerrada.'); });
 });
+$('release-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const contact = $('release-contact').value;
+  if (!confirm('Liberar a próxima resposta para este contato na distribuidora selecionada?')) return;
+  void run(async () => {
+    $('release-status').textContent = '';
+    await api(`companies/${encodeURIComponent(selected)}/cooldown/reset`, { method: 'POST', payload: { contact } });
+    $('release-status').textContent = 'Contato liberado. Aguarde uma nova mensagem dele.';
+  });
+});
+$('release-contact').addEventListener('input', () => { $('release-status').textContent = ''; });
 window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
 void run(async () => {
   try { const result = await api('session'); csrf = result.data.csrf; await list(); }
