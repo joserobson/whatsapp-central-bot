@@ -108,6 +108,19 @@ jobs:
           mv .env.next .env
           mv config/distribuidoras.json.next config/distribuidoras.json
           docker compose -f compose.vps.yaml config --quiet
+          if [[ -n "$(docker compose -f compose.vps.yaml ps -q --status running whatsapp-central-bot)" ]]; then
+            docker compose -f compose.vps.yaml exec -T whatsapp-central-bot node --input-type=module -e '
+              import Database from "better-sqlite3";
+              import { mkdir, copyFile } from "node:fs/promises";
+              import { randomUUID } from "node:crypto";
+              const path = `/app/data/backups/${Date.now()}-${randomUUID()}`;
+              await mkdir(path, { recursive: true, mode: 0o700 });
+              const db = new Database(process.env.SQLITE_PATH, { readonly: true, fileMustExist: true });
+              try { await db.backup(`${path}/state.sqlite`); } finally { db.close(); }
+              await copyFile(process.env.CONFIG_WRITABLE_PATH || process.env.CONFIG_PATH, `${path}/distribuidoras.json`);
+              console.log("Private state backup completed");
+            '
+          fi
           docker compose -f compose.vps.yaml up -d --build
           docker compose -f compose.vps.yaml ps
           REMOTE

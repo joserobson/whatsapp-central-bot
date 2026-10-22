@@ -15,9 +15,10 @@ export function createState(path) {
     instance TEXT NOT NULL, contact TEXT NOT NULL, sent_at INTEGER NOT NULL,
     PRIMARY KEY (instance, contact)
   );`);
+  if (!db.pragma('table_info(events)').some(column => column.name === 'selection_id')) db.exec('ALTER TABLE events ADD COLUMN selection_id TEXT');
   // An in-flight send at a crash is ambiguous: it must be reconciled manually.
   db.prepare("UPDATE events SET status = 'ambiguous', last_error = 'interrupted_send' WHERE status = 'processing'").run();
-  const insert = db.prepare("INSERT OR IGNORE INTO events (instance,message_id,contact,status,next_attempt_at,created_at,updated_at) VALUES (?,?,?,'pending',?,?,?)");
+  const insert = db.prepare("INSERT OR IGNORE INTO events (instance,message_id,contact,status,next_attempt_at,created_at,updated_at,selection_id) VALUES (?,?,?,'pending',?,?,?,?)");
   const due = db.prepare("SELECT * FROM events WHERE status IN ('pending','failed') AND next_attempt_at <= ? ORDER BY created_at LIMIT 1");
   const cooldown = db.prepare('SELECT sent_at FROM cooldowns WHERE instance = ? AND contact = ?');
   const processing = db.prepare("UPDATE events SET status = 'processing', attempts = attempts + 1, updated_at = ? WHERE instance = ? AND message_id = ?");
@@ -30,7 +31,7 @@ export function createState(path) {
     if (!event) return null;
     const windowMs = resolveCooldownMs(event.instance);
     const previous = cooldown.get(event.instance, event.contact);
-    if (previous && previous.sent_at + windowMs > now) {
+    if (!event.selection_id && previous && previous.sent_at + windowMs > now) {
       skipped.run(now, event.instance, event.message_id);
       return { ...event, skipped: true };
     }
@@ -38,10 +39,11 @@ export function createState(path) {
     return { ...event, attempts: event.attempts + 1 };
   });
   return {
-    enqueue(event) { const now = Date.now(); return insert.run(event.instance, event.messageId, event.contact, now, now, now).changes === 1; },
+    enqueue(event) { const now = Date.now(); return insert.run(event.instance, event.messageId, event.contact, now, now, now, event.selectionId ?? null).changes === 1; },
+    discard(event, now) { skipped.run(now, event.instance, event.message_id); },
     claim,
     clearCooldown(instance, contact) { return db.prepare('DELETE FROM cooldowns WHERE instance = ? AND contact = ?').run(instance, contact).changes; },
-    sent(event, now) { db.transaction(() => { sent.run(now, event.instance, event.message_id); markCooldown.run(event.instance, event.contact, now); })(); },
+    sent(event, now) { db.transaction(() => { sent.run(now, event.instance, event.message_id); if (!event.selection_id) markCooldown.run(event.instance, event.contact, now); })(); },
     failed(event, error, now) { const exhausted = event.attempts >= 3; const backoff = Math.min(60_000, 2 ** event.attempts * 1000); failure.run(exhausted ? 'dead' : 'failed', now + backoff, now, error, event.instance, event.message_id); },
     ambiguous(event, now) { failure.run('ambiguous', now, now, 'delivery_uncertain', event.instance, event.message_id); },
     cleanup(cutoff) { db.prepare("DELETE FROM events WHERE created_at < ? AND status IN ('sent','skipped','dead')").run(cutoff); db.prepare('DELETE FROM cooldowns WHERE sent_at < ?').run(cutoff); },

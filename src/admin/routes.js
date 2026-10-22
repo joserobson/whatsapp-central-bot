@@ -82,7 +82,7 @@ export function registerAdmin(app, config, options) {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
       const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', welcomeText, closingText, prefilledText, agents, cooldownHours } });
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
     });
     admin.post('/api/companies/:instance/cooldown/reset', async request => {
       getCompany(request.params.instance);

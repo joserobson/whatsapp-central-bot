@@ -4,10 +4,11 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createConfigStore, validateConfig } from '../src/config.js';
-import { buildReply } from '../src/message.js';
+import { buildReply, buildDelivery, agentRowId } from '../src/message.js';
 import { createState } from '../src/state.js';
 import { createWorker } from '../src/worker.js';
 import { createApp } from '../src/app.js';
+import Database from 'better-sqlite3';
 
 const companies = ['distribuidora-alfa', 'distribuidora-beta', 'gama-alimentos'].map((instance, index) => ({
   instance, enabled: true, displayName: instance, welcomeText: `Olá ${instance}`,
@@ -17,6 +18,85 @@ const companies = ['distribuidora-alfa', 'distribuidora-beta', 'gama-alimentos']
 const logger = { info() {}, warn() {}, error() {} };
 const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = false) => ({
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
+});
+
+test('mensagem no link é opcional e mantém comportamento legado', () => {
+  const company = { ...companies[0], includePrefilledText: false, prefilledText: '' };
+  assert.doesNotThrow(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] }));
+  assert.doesNotMatch(buildReply(company), /\?text=/);
+  assert.deepEqual(buildDelivery({ ...company, messageFormat: 'buttons' }).body.buttons.map(button => button.url), company.agents.map(agent => `https://wa.me/${agent.phoneE164}`));
+  assert.match(buildReply(companies[0]), /\?text=/);
+  assert.match(buildReply({ ...company, includePrefilledText: true, prefilledText: 'Olá & café' }), /\?text=Ol%C3%A1%20%26%20caf%C3%A9/);
+  for (const value of [true, 'false', 0, null]) {
+    assert.throws(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [{ ...company, includePrefilledText: value }] }));
+  }
+});
+
+test('migração da fila legada preserva eventos e cooldown', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'list-migrate-'));
+  const path = join(dir, 'state.sqlite');
+  const legacy = new Database(path);
+  legacy.exec(`CREATE TABLE events (instance TEXT NOT NULL, message_id TEXT NOT NULL, contact TEXT NOT NULL,
+    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_error TEXT, PRIMARY KEY(instance,message_id));
+    CREATE TABLE cooldowns (instance TEXT NOT NULL, contact TEXT NOT NULL, sent_at INTEGER NOT NULL, PRIMARY KEY(instance,contact));
+    INSERT INTO events VALUES ('alfa','legacy','5511988887777','pending',0,0,0,0,NULL);
+    INSERT INTO cooldowns VALUES ('alfa','5511988887777',1000);`);
+  legacy.close();
+  const state = createState(path);
+  try {
+    assert.equal(state.inspect('alfa', 'legacy').selection_id, null);
+    assert.equal(state.claim(1001, () => 3600000).skipped, true);
+    assert.equal(state.enqueue({ instance: 'alfa', messageId: 'legacy', contact: '5511988887777' }), false);
+  } finally { state.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('lista envia menu e responde escolha durante cooldown, com persistência e deduplicação', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'list-flow-'));
+  const dbPath = join(dir, 'state.sqlite');
+  let state = createState(dbPath);
+  const company = { ...companies[0], messageFormat: 'list' };
+  const config = { active: { defaultCooldownHours: 24 }, company: instance => instance === company.instance ? company : undefined };
+  const sends = [];
+  const makeWorker = () => createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'test', send: async (url, options) => { sends.push({ url, body: JSON.parse(options.body) }); return { ok: true }; } });
+  let worker = makeWorker();
+  let app = createApp({ state, config, worker, webhookSecret: 'secret' });
+  const post = body => app.inject({ method: 'POST', url: '/webhooks/evolution', headers: { 'x-webhook-secret': 'secret' }, payload: body });
+  const selection = (id, rowId) => ({ ...payload(company.instance, id), data: { ...payload(company.instance, id).data, message: { listResponseMessage: { singleSelectReply: { selectedRowId: rowId } } } } });
+  try {
+    assert.equal((await post(payload(company.instance, 'menu'))).statusCode, 202);
+    await worker.tick();
+    assert.match(sends[0].url, /sendList/);
+    assert.equal(sends[0].body.buttonText, 'Escolher atendente');
+    assert.deepEqual(sends[0].body.sections[0].rows.map(row => row.title), company.agents.map(agent => agent.label));
+    company.includePrefilledText = false;
+    const selected = selection('choice', sends[0].body.sections[0].rows[1].rowId);
+    assert.equal((await post(selection('invalid', 'agent_' + '0'.repeat(24)))).statusCode, 204);
+    assert.equal((await post(selection('malformed', 'bad'))).statusCode, 204);
+    company.ignoredContacts = ['5511988887777'];
+    assert.equal((await post(selected)).statusCode, 204);
+    delete company.ignoredContacts;
+    assert.equal((await post(selected)).statusCode, 202);
+    assert.equal((await post(selected)).statusCode, 200);
+    await app.close(); state.close();
+    state = createState(dbPath); worker = makeWorker();
+    app = createApp({ state, config, worker, webhookSecret: 'secret' });
+    await worker.tick();
+    assert.equal(sends.length, 2);
+    assert.match(sends[1].url, /sendText/);
+    assert.ok(sends[1].body.text.includes(company.agents[1].phoneE164));
+    assert.doesNotMatch(sends[1].body.text, /\?text=/);
+    assert.ok(!sends[1].body.text.includes(company.agents[0].phoneE164));
+    assert.equal((await post(selected)).statusCode, 200);
+    await post(payload(company.instance, 'cooldown')); await worker.tick();
+    assert.equal(sends.length, 2);
+    assert.equal(state.inspect(company.instance, 'cooldown').status, 'skipped');
+    await post(selection('stale', agentRowId(company.agents[0])));
+    company.messageFormat = 'text';
+    await worker.tick();
+    assert.equal(state.inspect(company.instance, 'stale').status, 'skipped');
+    assert.equal(sends.length, 2);
+  } finally { await app.close(); state.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('botões enviam três URLs e timeout não gera fallback ou reenvio', async () => {

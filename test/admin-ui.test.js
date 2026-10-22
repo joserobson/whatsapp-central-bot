@@ -15,4 +15,10 @@ test('formulário identifica campos inválidos, alterações pendentes e conflit
   assert.ok(validateDraft(changed).welcomeText);
   assert.match(errorMessage(412), /recarregue/i);
   assert.match(errorMessage(503), /preservado/i);
+  const list = { ...draft, messageFormat: 'list', agents: draft.agents.map(agent => ({ ...agent, label: 'a'.repeat(24) })) };
+  assert.deepEqual(validateDraft(list), {});
+  list.agents[0].label += 'a';
+  assert.ok(validateDraft(list)['label-0']);
+  assert.deepEqual(validateDraft({ ...draft, includePrefilledText: false, prefilledText: '' }), {});
+  assert.ok(validateDraft({ ...draft, includePrefilledText: true, prefilledText: '' }).prefilledText);
 });

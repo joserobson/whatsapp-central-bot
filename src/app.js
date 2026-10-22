@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
-import { normalizeWebhook } from './message.js';
+import { normalizeWebhook, agentRowId } from './message.js';
 import { registerAdmin } from './admin/routes.js';
 
 function authorized(actual, expected) {
@@ -26,6 +26,7 @@ export function createApp({ state, config, worker, webhookSecret, logger = false
     if (!event) return reply.code(204).send();
     const company = config.company(event.instance);
     if (!company) return reply.code(204).send();
+    if (event.selectionId && (company.messageFormat !== 'list' || !company.agents.some(agent => agentRowId(agent) === event.selectionId))) return reply.code(204).send();
     if (company.ignoredContacts?.includes(event.contact)) { worker.count(event.instance, 'ignored'); return reply.code(204).send(); }
     worker.count(event.instance, 'received');
     if (!state.enqueue(event)) return reply.code(200).send({ status: 'duplicate' });

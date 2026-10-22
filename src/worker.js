@@ -1,4 +1,4 @@
-import { buildDelivery } from './message.js';
+import { buildDelivery, agentRowId, contactUrl } from './message.js';
 
 export function createWorker({ state, config, baseUrl, apiKey, logger = console, send = fetch, now = Date.now }) {
   let running = false;
@@ -22,7 +22,9 @@ export function createWorker({ state, config, baseUrl, apiKey, logger = console,
         return;
       }
       try {
-        const delivery = buildDelivery(company);
+        const agent = event.selection_id && company.messageFormat === 'list' && company.agents.find(item => agentRowId(item) === event.selection_id);
+        if (event.selection_id && !agent) { state.discard(event, now()); return; }
+        const delivery = agent ? { endpoint: 'sendText', body: { text: `${agent.label}\n☎️ ${contactUrl(company, agent)}` } } : buildDelivery(company);
         const response = await send(`${baseUrl.replace(/\/$/, '')}/message/${delivery.endpoint}/${encodeURIComponent(event.instance)}`, {
           method: 'POST',
           headers: { apikey: apiKey, 'content-type': 'application/json' },

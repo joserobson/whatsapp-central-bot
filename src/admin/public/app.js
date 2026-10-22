@@ -9,7 +9,7 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
+const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
 const dirty = () => original && hasChanges(original, draft());
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -26,6 +26,8 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
   return { data: response.status === 204 ? null : await response.json(), etag: response.headers.get('etag') };
 }
 function fill(fields) {
+  $('includePrefilledText').checked = fields.includePrefilledText ?? true;
+  $('prefilledText').required = $('includePrefilledText').checked;
   for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
@@ -39,9 +41,32 @@ function validate() {
   if (first) { $(first).focus(); status('Confira os campos destacados.', true); return false; }
   return true;
 }
-function renderPreview(data) {
+function renderPreview(data, fields) {
   const container = $('preview');
   container.replaceChildren();
+  if (data.format === 'list') {
+    const body = document.createElement('div');
+    body.textContent = [data.content.title, data.content.description, data.content.footerText].filter(Boolean).join('\n\n');
+    const menu = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = data.content.buttonText;
+    menu.append(summary);
+    for (const row of data.content.sections[0].rows) {
+      const choice = document.createElement('button');
+      choice.type = 'button'; choice.className = 'preview-choice'; choice.textContent = row.title;
+      choice.addEventListener('click', () => {
+        const index = data.content.sections[0].rows.indexOf(row);
+        const agent = fields.agents[index];
+        const reply = document.createElement('div');
+        reply.textContent = `Simulação da resposta: ${agent.label}\nhttps://wa.me/${agent.phoneE164}${fields.includePrefilledText === false ? '' : `?text=${encodeURIComponent(fields.prefilledText)}`}`;
+        container.querySelector('.list-reply')?.remove();
+        reply.className = 'list-reply'; container.append(reply);
+      });
+      menu.append(choice);
+    }
+    container.append(body, menu);
+    return;
+  }
   if (data.format !== 'buttons') { container.textContent = data.text; return; }
   const body = document.createElement('div');
   body.textContent = [data.content.title, data.content.description, data.content.footer].filter(Boolean).join('\n\n');
@@ -59,7 +84,7 @@ async function preview() {
   const fields = draft();
   const result = await api(`companies/${encodeURIComponent(selected)}/preview`, { method: 'POST', payload: fields });
   if (number === previewNumber) {
-    renderPreview(result.data);
+    renderPreview(result.data, fields);
     $('preview-state').textContent = hasChanges(fields, draft()) ? 'Prévia desatualizada' : (dirty() ? 'Rascunho' : 'Versão salva');
   }
 }
@@ -102,7 +127,7 @@ $('company').addEventListener('change', () => { const next = $('company').value;
   if (dirty() && !confirm('Descartar as alterações pendentes e trocar de distribuidora?')) return;
   void run(async () => { await load(next); status('Configuração carregada.'); });
 });
-$('editor').addEventListener('input', () => { $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
+$('editor').addEventListener('input', () => { $('prefilledText').required = $('includePrefilledText').checked; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('preview-button').addEventListener('click', () => void run(preview));
 $('editor').addEventListener('submit', event => { event.preventDefault(); if (!validate()) return;
   void run(async () => {

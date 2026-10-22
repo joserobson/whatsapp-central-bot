@@ -119,7 +119,27 @@ A instância da Evolution também pode ser alterada no editor de cada distribuid
 
 No painel, cada distribuidora pode escolher **Texto com links** (padrão) ou
 **Botões com links (experimental)**. Configurações antigas continuam enviando texto.
-O campo opcional `messageFormat` aceita `text` ou `buttons`.
+O campo opcional `messageFormat` aceita `text`, `buttons` ou `list`.
+
+A opção **Incluir mensagem pré-preenchida no link** controla o parâmetro `?text=`
+em todos os formatos, inclusive na resposta após escolher um item da lista.
+Desmarcada (`includePrefilledText: false`), gera somente `https://wa.me/numero`.
+O texto configurado é preservado e pode ficar vazio enquanto a opção estiver
+desativada. Sem esse campo na configuração, o comportamento anterior é mantido.
+
+**Lista de atendentes (experimental)** usa `/message/sendList/{instance}` e
+apresenta os três representantes em um menu **Escolher atendente**. Os nomes
+devem ter até 24 caracteres. A escolha envia uma resposta ao bot, que retorna
+somente o link do representante selecionado; o item da lista não abre uma URL.
+A prévia permite abrir o menu e simular a escolha sem enviar mensagens.
+
+A seleção válida é processada mesmo durante o intervalo do menu, respeitando
+contatos ignorados e deduplicação. Ela não renova nem apaga o cooldown do menu.
+Seleções de representantes alterados ou de uma distribuidora que saiu do formato
+lista são descartadas. Uma coluna opcional `selection_id` é adicionada ao SQLite
+automaticamente, preservando os eventos existentes. Faça backup do volume antes
+do deploy; mantenha uma réplica. A aparência e entrega precisam de teste real
+na Evolution, assim como no formato de botões.
 
 Botões usam `/message/sendButtons/{instance}`, com três botões de URL `wa.me`
 e a mensagem pré-preenchida. Os nomes dos representantes aparecem nos botões e
