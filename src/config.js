@@ -12,6 +12,7 @@ export function validateConfig(raw) {
   for (const company of raw.companies) {
     if (!company || !nonempty(company.instance, 100) || !/^[a-zA-Z0-9_-]+$/.test(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
     instances.add(company.instance);
+    if (company.messageFormat !== undefined && !['text', 'buttons'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
     if (typeof company.enabled !== 'boolean' || !nonempty(company.displayName, 100) || !nonempty(company.welcomeText, 1000) || typeof company.closingText !== 'string' || company.closingText.length > 500 || !nonempty(company.prefilledText, 500)) throw new Error('campos de empresa invalidos');
     if (company.allowDuplicateAgentPhones !== undefined && typeof company.allowDuplicateAgentPhones !== 'boolean') throw new Error('permissao de telefone repetido invalida');
     if (!Array.isArray(company.agents) || (company.enabled && company.agents.length !== 3)) throw new Error('empresa habilitada deve ter tres atendentes');
@@ -20,6 +21,7 @@ export function validateConfig(raw) {
       const phone = agent && digits(agent.phoneE164) ? parsePhoneNumberFromString(`+${agent.phoneE164}`) : null;
       if (!nonempty(agent?.label, 80) || !phone?.isValid() || (phones.has(agent.phoneE164) && !company.allowDuplicateAgentPhones)) throw new Error('atendente ou telefone invalido');
       phones.add(agent.phoneE164);
+      if (company.messageFormat === 'buttons' && agent.label.length > 20) throw new Error('nome do botao deve ter ate 20 caracteres');
     }
     if (company.cooldownHours !== undefined && (!Number.isInteger(company.cooldownHours) || company.cooldownHours < 1 || company.cooldownHours > 720)) throw new Error('cooldown invalido');
     if (company.ignoredContacts !== undefined && (!Array.isArray(company.ignoredContacts) || company.ignoredContacts.some(phone => !digits(phone)))) throw new Error('contatos ignorados invalidos');
@@ -33,7 +35,7 @@ export function configError(statusCode, message) {
 
 export function editedCompany(company, fields) {
   const required = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
-  const allowed = [...required, 'cooldownHours', 'instance'];
+  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat'];
   if (!fields || typeof fields !== 'object' || Array.isArray(fields) || required.some(key => !Object.hasOwn(fields, key)) || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
   if (!Array.isArray(fields.agents) || fields.agents.length !== 3) throw configError(422, 'three_agents_required');
   if (fields.agents.some(agent => !agent || Object.keys(agent).length !== 2 || Object.keys(agent).some(key => !['label', 'phoneE164'].includes(key)))) throw configError(400, 'invalid_agent_fields');

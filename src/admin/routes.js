@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { equal, token, validHash, verifyPassword } from './auth.js';
 import { configError, editedCompany } from '../config.js';
-import { buildReply } from '../message.js';
+import { buildReply, buildDelivery } from '../message.js';
 
 export function registerAdmin(app, config, options) {
   const { username, passwordHash, origin, state, now = Date.now, secure = true } = options;
@@ -82,7 +82,7 @@ export function registerAdmin(app, config, options) {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
       const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, welcomeText, closingText, prefilledText, agents, cooldownHours } });
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', welcomeText, closingText, prefilledText, agents, cooldownHours } });
     });
     admin.post('/api/companies/:instance/cooldown/reset', async request => {
       getCompany(request.params.instance);
@@ -91,7 +91,10 @@ export function registerAdmin(app, config, options) {
       state.clearCooldown(request.params.instance, body.contact);
       return { status: 'released' };
     });
-    admin.post('/api/companies/:instance/preview', async request => ({ text: buildReply(editedCompany(getCompany(request.params.instance), request.body)) }));
+    admin.post('/api/companies/:instance/preview', async request => {
+      const company = editedCompany(getCompany(request.params.instance), request.body);
+      return { text: buildReply(company), format: company.messageFormat ?? 'text', content: buildDelivery(company).body };
+    });
     admin.put('/api/companies/:instance', async (request, reply) => {
       const expected = request.headers['if-match'];
       if (!expected) throw configError(428, 'version_required');

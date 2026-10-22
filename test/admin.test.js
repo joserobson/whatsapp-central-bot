@@ -45,6 +45,7 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.equal((await app.inject({ url: '/admin/api/companies', headers })).json().companies.length, 1);
     const current = await app.inject({ url: '/admin/api/companies/alfa', headers });
     assert.equal(current.json().fields.cooldownHours, 24);
+    assert.equal(current.json().fields.messageFormat, 'text');
     const payload = { ...current.json().fields, cooldownHours: 1, welcomeText: '<img src=x onerror=alert(1)>' };
     for (const cooldownHours of [0, 721, 1.5, '1', null]) assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload: { ...payload, cooldownHours } })).statusCode, 422);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { cookie, origin }, payload })).statusCode, 403);
@@ -56,11 +57,17 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     const preview = await app.inject({ method: 'POST', url: '/admin/api/companies/alfa/preview', headers, payload });
     assert.equal(preview.statusCode, 200);
     assert.ok(preview.json().text.startsWith(payload.welcomeText));
+    payload.messageFormat = 'buttons';
+    const buttonPreview = await app.inject({ method: 'POST', url: '/admin/api/companies/alfa/preview', headers, payload });
+    assert.equal(buttonPreview.json().format, 'buttons');
+    assert.equal(buttonPreview.json().content.buttons.length, 3);
+    assert.equal(buttonPreview.json().content.buttons[0].displayText, payload.agents[0].label);
     const updated = await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload });
     assert.equal(updated.statusCode, 200);
     const restarted = createConfigStore(path, { info() {}, error() {} });
     await restarted.reload();
     assert.equal(restarted.company('alfa').cooldownHours, 1);
+    assert.equal(restarted.company('alfa').messageFormat, 'buttons');
     assert.notEqual(updated.headers.etag, current.headers.etag);
     assert.equal((await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload })).statusCode, 412);
     assert.equal((await app.inject({ method: 'POST', url: '/admin/api/logout', headers, payload: {} })).statusCode, 204);

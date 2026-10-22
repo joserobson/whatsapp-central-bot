@@ -19,6 +19,41 @@ const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = fa
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
 });
 
+test('botões enviam três URLs e timeout não gera fallback ou reenvio', async () => {
+  for (const uncertain of [false, true]) {
+    const company = { ...companies[0], messageFormat: 'buttons' };
+    const state = createState(':memory:');
+    const requests = [];
+    const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+    const worker = createWorker({ state, config, baseUrl: 'http://evolution/', apiKey: 'key', logger,
+      send: async (url, options) => {
+        requests.push({ url, body: JSON.parse(options.body) });
+        if (uncertain) throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+        return { ok: true };
+      } });
+    try {
+      state.enqueue({ instance: company.instance, messageId: 'buttons', contact: '5511988887777' });
+      await worker.tick();
+      await worker.tick();
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].url, `http://evolution/message/sendButtons/${company.instance}`);
+      assert.equal(requests[0].body.number, '5511988887777');
+      assert.equal(requests[0].body.description, company.welcomeText);
+      assert.deepEqual(requests[0].body.buttons, company.agents.map(agent => ({ type: 'url', displayText: agent.label, url: `https://wa.me/${agent.phoneE164}?text=${encodeURIComponent(company.prefilledText)}` })));
+      assert.equal(state.inspect(company.instance, 'buttons').status, uncertain ? 'ambiguous' : 'sent');
+    } finally { state.close(); }
+  }
+});
+
+test('formato desconhecido e nome longo de botão são rejeitados, texto legado continua válido', () => {
+  const raw = company => ({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] });
+  assert.doesNotThrow(() => validateConfig(raw(companies[0])));
+  assert.throws(() => validateConfig(raw({ ...companies[0], messageFormat: 'invalid' })));
+  const company = { ...companies[0], agents: companies[0].agents.map(agent => ({ ...agent, label: 'a'.repeat(21) })) };
+  assert.doesNotThrow(() => validateConfig(raw(company)));
+  assert.throws(() => validateConfig(raw({ ...company, messageFormat: 'buttons' })));
+});
+
 test('intervalo reduzido e liberação permitem novas mensagens sem reenviar histórico', async () => {
   const state = createState(':memory:');
   let time = 10_000_000;

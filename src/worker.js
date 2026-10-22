@@ -1,4 +1,4 @@
-import { buildReply } from './message.js';
+import { buildDelivery } from './message.js';
 
 export function createWorker({ state, config, baseUrl, apiKey, logger = console, send = fetch, now = Date.now }) {
   let running = false;
@@ -22,10 +22,11 @@ export function createWorker({ state, config, baseUrl, apiKey, logger = console,
         return;
       }
       try {
-        const response = await send(`${baseUrl.replace(/\/$/, '')}/message/sendText/${encodeURIComponent(event.instance)}`, {
+        const delivery = buildDelivery(company);
+        const response = await send(`${baseUrl.replace(/\/$/, '')}/message/${delivery.endpoint}/${encodeURIComponent(event.instance)}`, {
           method: 'POST',
           headers: { apikey: apiKey, 'content-type': 'application/json' },
-          body: JSON.stringify({ number: event.contact, text: buildReply(company) }),
+          body: JSON.stringify({ number: event.contact, ...delivery.body }),
           signal: AbortSignal.timeout(10_000)
         });
         if (!response.ok) {

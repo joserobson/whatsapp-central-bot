@@ -92,7 +92,7 @@ Ao atualizar o código, execute `git pull` e `docker compose -f compose.vps.yaml
 3. No proxy HTTPS existente, encaminhe **somente `/admin/`** para `http://whatsapp-central-bot:3000/admin/`, preservando o prefixo. O proxy precisa alcançar a rede Docker existente. Não encaminhe a raiz, `/metrics`, `/health/*` ou webhook para acesso público. Não é necessário publicar porta do bot na VPS nem criar container adicional.
 4. Acesse `/admin/`, entre, escolha a distribuidora, edite, atualize a prévia e salve. Uma gravação concorrente retorna conflito; “Recarregar versão salva” permite comparar sem perder o rascunho. Sessões expiram após oito horas, logout ou reinício. Reiniciar requer novo login, mas preserva configuração.
 
-O editor mantém três representantes. Nomes são identificação interna; a resposta mostra saudação, três linhas `☎️ https://wa.me/...` e encerramento opcional. A prévia usa o texto efetivamente enviado. O bot não controla a aparência dos links no aplicativo WhatsApp. O intervalo entre respostas pode ser editado por distribuidora, de 1 a 720 horas, mantendo 24 horas como padrão. O novo intervalo considera o horário da última resposta, sem disparar envio.
+O editor mantém três representantes. No formato texto, nomes são identificação interna; a resposta mostra saudação, três linhas `☎️ https://wa.me/...` e encerramento opcional. A prévia usa o texto efetivamente enviado. O bot não controla a aparência dos links no aplicativo WhatsApp. O intervalo entre respostas pode ser editado por distribuidora, de 1 a 720 horas, mantendo 24 horas como padrão. O novo intervalo considera o horário da última resposta, sem disparar envio.
 
 Em **Liberar nova resposta**, informe o telefone do cliente com DDI e DDD, somente dígitos, e confirme. A ação limpa somente a espera desse contato na distribuidora selecionada; ele receberá resposta ao enviar uma nova mensagem. O histórico e a deduplicação são preservados, mensagens antigas não são reenviadas e contatos ignorados continuam ignorados.
 
@@ -114,3 +114,20 @@ Para homologação, usar `central.<IP-PUBLICO-DA-VPS>.nip.io`. O nip.io resolve 
 Após o deploy e a configuração do proxy, validar login, edição, prévia, persistência após recriação e ausência de acesso público a `/metrics`, `/health/live` e `/webhooks/evolution`. Referência do serviço DNS: [nip.io](https://nip.io/).
 
 A instância da Evolution também pode ser alterada no editor de cada distribuidora. Use o nome exato de uma instância existente (letras, números, hífen e sublinhado), sem reutilizar a instância de outra distribuidora. O painel não cria instâncias na Evolution nem configura seus webhooks. Após salvar, o roteamento passa a usar a nova instância; eventos e intervalos anteriores permanecem vinculados à instância antiga, sem migração ou reenvio automático.
+
+## Formatos de mensagem
+
+No painel, cada distribuidora pode escolher **Texto com links** (padrão) ou
+**Botões com links (experimental)**. Configurações antigas continuam enviando texto.
+O campo opcional `messageFormat` aceita `text` ou `buttons`.
+
+Botões usam `/message/sendButtons/{instance}`, com três botões de URL `wa.me`
+e a mensagem pré-preenchida. Os nomes dos representantes aparecem nos botões e
+devem ter até 20 caracteres. A prévia exibe botões verticais como ilustração;
+o suporte e a aparência real dependem da versão/conexão da Evolution e do WhatsApp.
+Uma resposta HTTP de sucesso não comprova que os botões apareceram no aparelho.
+
+Para testar: salve o formato, use **Liberar nova resposta** para seu contato e
+envie uma nova mensagem ao bot. Confira no aparelho os três botões e seus destinos.
+Para comparar, selecione texto, salve e repita a liberação e a nova mensagem.
+Não há fallback automático para texto em caso de falha ou entrega incerta.

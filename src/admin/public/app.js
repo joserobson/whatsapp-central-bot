@@ -9,7 +9,7 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ instance: $("instance").value, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
+const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
 const dirty = () => original && hasChanges(original, draft());
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -26,12 +26,12 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
   return { data: response.status === 204 ? null : await response.json(), etag: response.headers.get('etag') };
 }
 function fill(fields) {
-  for (const key of ['instance', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
+  for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
 function validate() {
   const errors = validateDraft(draft());
-  for (const id of ['instance', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
+  for (const id of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
     $(id).setAttribute('aria-invalid', String(Boolean(errors[id])));
     $(`error-${id}`).textContent = errors[id] ?? '';
   }
@@ -39,13 +39,27 @@ function validate() {
   if (first) { $(first).focus(); status('Confira os campos destacados.', true); return false; }
   return true;
 }
+function renderPreview(data) {
+  const container = $('preview');
+  container.replaceChildren();
+  if (data.format !== 'buttons') { container.textContent = data.text; return; }
+  const body = document.createElement('div');
+  body.textContent = [data.content.title, data.content.description, data.content.footer].filter(Boolean).join('\n\n');
+  container.append(body);
+  for (const button of data.content.buttons) {
+    const link = document.createElement('a');
+    link.className = 'preview-link'; link.textContent = button.displayText;
+    link.href = button.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    container.append(link);
+  }
+}
 async function preview() {
   if (!validate()) return;
   const number = ++previewNumber;
   const fields = draft();
   const result = await api(`companies/${encodeURIComponent(selected)}/preview`, { method: 'POST', payload: fields });
   if (number === previewNumber) {
-    $('preview').textContent = result.data.text;
+    renderPreview(result.data);
     $('preview-state').textContent = hasChanges(fields, draft()) ? 'Prévia desatualizada' : (dirty() ? 'Rascunho' : 'Versão salva');
   }
 }
@@ -77,7 +91,7 @@ async function run(task) {
 for (let n = 0; n < 3; n++) {
   const block = document.createElement('div'); block.className = 'agent';
   // Only fixed application markup is inserted as HTML; all configuration uses value/textContent.
-  block.innerHTML = `<div class="agent-grid"><div><label for="label-${n}">Representante ${n + 1} · nome interno</label><input id="label-${n}" maxlength="80" required aria-describedby="error-label-${n}"><small id="error-label-${n}" class="field-error"></small></div><div><label for="phone-${n}">WhatsApp com DDI e DDD</label><input id="phone-${n}" inputmode="tel" maxlength="15" placeholder="55 + DDD + número" required aria-describedby="error-phone-${n}"><small id="error-phone-${n}" class="field-error"></small></div></div>`;
+  block.innerHTML = `<div class="agent-grid"><div><label for="label-${n}">Representante ${n + 1} · nome / botão</label><input id="label-${n}" maxlength="80" required aria-describedby="error-label-${n}"><small id="error-label-${n}" class="field-error"></small></div><div><label for="phone-${n}">WhatsApp com DDI e DDD</label><input id="phone-${n}" inputmode="tel" maxlength="15" placeholder="55 + DDD + número" required aria-describedby="error-phone-${n}"><small id="error-phone-${n}" class="field-error"></small></div></div>`;
   $('agents').append(block);
 }
 $('login-form').addEventListener('submit', event => { event.preventDefault(); void run(async () => {
