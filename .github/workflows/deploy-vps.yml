@@ -119,7 +119,7 @@ jobs:
               try { await db.backup(`${path}/state.sqlite`); } finally { db.close(); }
               await copyFile(process.env.CONFIG_WRITABLE_PATH || process.env.CONFIG_PATH, `${path}/distribuidoras.json`);
               console.log("Private state backup completed");
-            '
+            ' </dev/null
           fi
           docker compose -f compose.vps.yaml up -d --build
           docker compose -f compose.vps.yaml ps
