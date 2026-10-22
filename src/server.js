@@ -32,7 +32,7 @@ const admin = {
   origin: process.env.ADMIN_ORIGIN,
   secure: process.env.NODE_ENV === 'production' || process.env.ADMIN_ALLOW_HTTP !== 'true'
 };
-const app = createApp({ state, config, worker, webhookSecret: process.env.WEBHOOK_SHARED_SECRET, admin });
+const app = createApp({ state, config, worker, webhookSecret: process.env.WEBHOOK_SHARED_SECRET, admin, logger: true });
 const interval = (callback, ms) => { const timer = setInterval(callback, ms); timer.unref(); return timer; };
 interval(() => void config.reload(), Number(process.env.CONFIG_POLL_MS) || 5000);
 interval(() => void worker.tick(), Number(process.env.WORKER_POLL_MS) || 1000);
@@ -41,3 +41,4 @@ const stop = async () => { await app.close(); state.close(); process.exit(0); };
 process.once('SIGINT', stop);
 process.once('SIGTERM', stop);
 await app.listen({ host: '0.0.0.0', port: Number(process.env.PORT) || 3000 });
+logger.info({ event: 'service_started', port: Number(process.env.PORT) || 3000 });

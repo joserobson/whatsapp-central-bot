@@ -5,6 +5,19 @@ let exampleImage;
 const exampleMedia = () => exampleImage ??= readFileSync(new URL('./admin/public/example-banner.jpg', import.meta.url)).toString('base64');
 
 export const agentRowId = agent => `agent_${createHash('sha256').update(`${agent.phoneE164}:${agent.label}`).digest('hex').slice(0, 24)}`;
+export const messageRef = messageId => createHash('sha256').update(messageId).digest('hex').slice(0, 12);
+
+export function webhookRejectionReason(body) {
+  if (!body || !['messages.upsert', 'MESSAGES_UPSERT'].includes(body.event)) return 'unsupported_event';
+  if (typeof body.instance !== 'string') return 'invalid_instance';
+  const key = body.data?.key;
+  if (!key || typeof key.id !== 'string' || !key.id || key.id.length > 200 || typeof key.remoteJid !== 'string') return 'invalid_message_key';
+  if (key.fromMe !== false) return 'outgoing_message';
+  if (!/^\d{8,15}@(s\.whatsapp\.net|c\.us)$/.test(key.remoteJid) || key.remoteJid === 'status@broadcast') return 'unsupported_contact_address';
+  const message = body.data?.message;
+  if (message?.listResponseMessage && (typeof message.listResponseMessage.singleSelectReply?.selectedRowId !== 'string' || !/^agent_[a-f0-9]{24}$/.test(message.listResponseMessage.singleSelectReply.selectedRowId))) return 'invalid_list_selection';
+  return 'invalid_payload';
+}
 
 export function normalizeWebhook(body) {
   if (!body || !['messages.upsert', 'MESSAGES_UPSERT'].includes(body.event) || typeof body.instance !== 'string') return null;
