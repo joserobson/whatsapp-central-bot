@@ -134,6 +134,33 @@ incluída em `src/admin/public/example-banner.jpg` (1000 x 500, JPEG).
 O campo opcional de configuração é `imageUrl`; configurações antigas continuam
 válidas. Se o envio ficar incerto, não há repetição automática nem fallback.
 
+### Upload de imagem pelo painel
+
+Em **Imagem com links**, selecione um JPEG ou PNG de até 5 MB e clique em
+**Enviar e visualizar**. O servidor decodifica o arquivo, confere o formato real,
+recusa corrupção/animação e imagens acima de 40 milhões de pixels, corrige a
+orientação, remove metadados, reduz para até 2048 pixels por lado e prepara JPEG
+(transparência fica branca). Esse limite de dimensões é uma escolha da aplicação,
+não um requisito de tamanho de banner do WhatsApp. Prefira banners horizontais,
+por exemplo 1200 × 600. [Formatos de imagem no WhatsApp](https://whatsappbusiness.com/blog/media-messages-via-app/).
+
+O upload só altera o rascunho: clique em **Salvar alterações** para usar a imagem.
+O arquivo enviado tem prioridade sobre a URL; **Usar imagem de exemplo** limpa
+essa seleção e a URL no rascunho. Para usar URL depois de um upload, limpe a seleção
+e preencha a URL. O arquivo anterior não é apagado ao trocar a imagem.
+
+Os JPEGs preparados ficam em `images/` ao lado do JSON gravável (na VPS,
+`/app/data/images` no volume existente), com identificadores derivados do conteúdo.
+O JSON guarda apenas `imageId`, sem base64. Prévia e upload exigem sessão; gravações
+exigem origem e CSRF válidos. O worker lê o arquivo local e envia base64 à Evolution,
+sem URL pública; arquivo ausente interrompe o envio, sem trocar pelo exemplo.
+O backup do deploy inclui essa pasta. Preserve os arquivos ao restaurar o JSON.
+
+O endpoint de upload usa JSON/base64 e aceita até 7 MB de corpo, isoladamente;
+as demais rotas mantêm o limite de 64 KB. No proxy reverso do painel, configure
+`client_max_body_size 8m;` para permitir arquivos de 5 MB com a expansão do base64.
+Se o proxy recusar, o painel mostra a falha sem alterar a configuração ativa.
+
 **Contatos (vCard)** envia a saudação e o encerramento em texto e depois os três
 representantes agrupados via `/message/sendContact/{instance}`, com nome,
 telefone e distribuidora. Não usa imagem, URL ou mensagem pré-preenchida.

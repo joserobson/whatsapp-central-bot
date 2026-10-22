@@ -26,5 +26,5 @@ export function validateDraft(draft) {
   return errors;
 }
 export function errorMessage(status) {
-  return ({ 401: 'Sua sessão expirou. Entre novamente; o rascunho permanece nesta página.', 403: 'Acesso recusado. Entre novamente para renovar a sessão.', 412: 'A configuração mudou. Seu rascunho foi preservado; recarregue a versão atual para comparar.', 422: 'Confira os campos: textos, três representantes e telefones válidos sem duplicidade não autorizada.', 429: 'Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.' })[status] ?? 'Não foi possível concluir. Seu rascunho foi preservado; tente novamente.';
+  return ({ 401: 'Sua sessão expirou. Entre novamente; o rascunho permanece nesta página.', 403: 'Acesso recusado. Entre novamente para renovar a sessão.', 412: 'A configuração mudou. Seu rascunho foi preservado; recarregue a versão atual para comparar.', 413: 'Arquivo muito grande. Use uma imagem de até 5 MB.', 415: 'Formato não aceito. Use JPEG ou PNG.', 422: 'Confira os campos: textos, três representantes e telefones válidos sem duplicidade não autorizada.', 429: 'Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.' })[status] ?? 'Não foi possível concluir. Seu rascunho foi preservado; tente novamente.';
 }

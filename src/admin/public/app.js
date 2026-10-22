@@ -9,7 +9,7 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
+const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
 const dirty = () => original && hasChanges(original, draft());
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -20,17 +20,20 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
   const response = await fetch(`/admin/api/${path}`, { method, headers, credentials: 'same-origin', ...(method !== 'GET' ? { body: JSON.stringify(payload ?? {}) } : {}) });
   if (!response.ok) {
     if (response.status === 401) showLogin();
+    const detail = await response.json().catch(() => ({}));
+    const imageErrors = { image_type_not_supported: 'Selecione uma imagem JPEG ou PNG.', invalid_image: 'Arquivo inválido, corrompido ou com mais de 40 milhões de pixels. Use um JPEG ou PNG válido.', image_too_large: 'A imagem deve ter até 5 MB.', uploaded_image_not_found: 'Imagem enviada não encontrada. Envie o arquivo novamente.' };
     const message = path === 'login' && response.status === 401 ? 'Usuário ou senha inválidos.' : errorMessage(response.status);
-    throw Object.assign(new Error(message), { status: response.status });
+    throw Object.assign(new Error(imageErrors[detail.error] ?? message), { status: response.status });
   }
   return { data: response.status === 204 ? null : await response.json(), etag: response.headers.get('etag') };
 }
 function fill(fields) {
+  $('image-file').value = ''; $('upload-status').textContent = '';
   $('includePrefilledText').checked = fields.includePrefilledText ?? true;
   $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
   $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
   $('image-settings').hidden = fields.messageFormat !== 'image';
-  for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl']) $(key).value = fields[key] ?? '';
+  for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', 'imageId']) $(key).value = fields[key] ?? '';
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
 function validate() {
@@ -155,6 +158,27 @@ $('company').addEventListener('change', () => { const next = $('company').value;
 });
 $('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('preview-button').addEventListener('click', () => void run(preview));
+$('upload-image').addEventListener('click', () => void run(async () => {
+  const file = $('image-file').files[0];
+  if (!file || !['image/jpeg', 'image/png'].includes(file.type)) throw new Error('Selecione uma imagem JPEG ou PNG.');
+  if (!file.size || file.size > 5 * 1024 * 1024) throw new Error('A imagem deve ter entre 1 byte e 5 MB.');
+  $('upload-status').textContent = 'Validando e preparando a imagem…';
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.')); reader.readAsDataURL(file);
+    });
+    const result = await api(`companies/${encodeURIComponent(selected)}/image-upload`, { method: 'POST', payload: { data, mimeType: file.type } });
+    $('imageId').value = result.data.id; $('imageUrl').value = '';
+    $('upload-status').textContent = `Imagem pronta: ${result.data.width} × ${result.data.height} pixels, ${Math.ceil(result.data.size / 1024)} KB. Clique em Salvar alterações para aplicar.`;
+    await preview(); status('Imagem no rascunho. Salve para aplicar ao atendimento.');
+  } catch (error) { $('upload-status').textContent = error.message; throw error; }
+}));
+$('clear-image').addEventListener('click', () => void run(async () => {
+  $('imageId').value = ''; $('imageUrl').value = ''; $('image-file').value = '';
+  $('upload-status').textContent = 'Imagem de exemplo selecionada. Salve para aplicar.';
+  await preview(); status('Há alterações não salvas.');
+}));
 $('editor').addEventListener('submit', event => { event.preventDefault(); if (!validate()) return;
   void run(async () => {
     const fields = draft();

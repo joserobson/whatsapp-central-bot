@@ -9,6 +9,7 @@ import { createState } from '../src/state.js';
 import { createWorker } from '../src/worker.js';
 import { createApp } from '../src/app.js';
 import Database from 'better-sqlite3';
+import { createImageStore } from '../src/images.js';
 
 const companies = ['distribuidora-alfa', 'distribuidora-beta', 'gama-alimentos'].map((instance, index) => ({
   instance, enabled: true, displayName: instance, welcomeText: `Olá ${instance}`,
@@ -18,6 +19,30 @@ const companies = ['distribuidora-alfa', 'distribuidora-beta', 'gama-alimentos']
 const logger = { info() {}, warn() {}, error() {} };
 const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = false) => ({
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
+});
+
+test('worker envia imagem de upload em base64 e não substitui arquivo ausente por exemplo', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'upload-worker-'));
+  const imageStore = createImageStore(dir);
+  const bytes = await readFile(new URL('../src/admin/public/example-banner.jpg', import.meta.url));
+  const uploaded = await imageStore.upload({ data: bytes.toString('base64'), mimeType: 'image/jpeg' });
+  const state = createState(':memory:');
+  const company = { ...companies[0], messageFormat: 'image', imageId: uploaded.id, imageUrl: 'https://example.com/ignored.jpg' };
+  const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+  const calls = [];
+  const worker = createWorker({ state, config, imageStore, logger, baseUrl: 'http://evolution', apiKey: 'test', send: async (_url, options) => { calls.push(JSON.parse(options.body)); return { ok: true }; } });
+  try {
+    state.enqueue({ instance: company.instance, messageId: 'uploaded', contact: '5511988887777' });
+    await worker.tick();
+    assert.equal(calls.length, 1);
+    assert.deepEqual(Buffer.from(calls[0].media, 'base64'), await imageStore.load(uploaded.id));
+    assert.equal(calls[0].mimetype, 'image/jpeg');
+    company.imageId = `${'0'.repeat(64)}.jpg`;
+    state.enqueue({ instance: company.instance, messageId: 'missing-image', contact: '5511988886666' });
+    await worker.tick();
+    assert.equal(calls.length, 1);
+    assert.equal(state.inspect(company.instance, 'missing-image').status, 'failed');
+  } finally { state.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('imagem envia banner e legenda em uma mensagem, com exemplo local ou URL HTTPS', async () => {

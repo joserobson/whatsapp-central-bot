@@ -4,7 +4,7 @@ import { configError, editedCompany } from '../config.js';
 import { buildReply, buildDelivery } from '../message.js';
 
 export function registerAdmin(app, config, options) {
-  const { username, passwordHash, origin, state, now = Date.now, secure = true } = options;
+  const { username, passwordHash, origin, state, imageStore, now = Date.now, secure = true } = options;
   if (!username || username.length > 100 || !validHash(passwordHash) || !origin) throw new Error('Configuracao administrativa invalida');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['http:', 'https:'].includes(parsedOrigin.protocol) || (secure && parsedOrigin.protocol !== 'https:')) throw new Error('ADMIN_ORIGIN invalida');
@@ -82,8 +82,23 @@ export function registerAdmin(app, config, options) {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
       const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', imageUrl: company.imageUrl ?? '', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', imageUrl: company.imageUrl ?? '', imageId: company.imageId ?? '', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
     });
+    admin.post('/api/companies/:instance/image-upload', { bodyLimit: 7 * 1024 * 1024 }, async request => {
+      getCompany(request.params.instance);
+      if (!imageStore) throw configError(503, 'image_storage_unavailable');
+      return imageStore.upload(request.body);
+    });
+    admin.get('/api/images/:imageId', async (request, reply) => {
+      if (!imageStore) throw configError(503, 'image_storage_unavailable');
+      return reply.type('image/jpeg').send(await imageStore.load(request.params.imageId));
+    });
+    const checkImage = async company => {
+      if (company.imageId) {
+        if (!imageStore) throw configError(503, 'image_storage_unavailable');
+        await imageStore.load(company.imageId);
+      }
+    };
     admin.post('/api/companies/:instance/cooldown/reset', async request => {
       getCompany(request.params.instance);
       const body = request.body;
@@ -93,12 +108,14 @@ export function registerAdmin(app, config, options) {
     });
     admin.post('/api/companies/:instance/preview', async request => {
       const company = editedCompany(getCompany(request.params.instance), request.body);
-      if (company.messageFormat === 'image') return { text: buildReply(company), format: 'image', content: { imageUrl: company.imageUrl || '/admin/example-banner.jpg' } };
+      await checkImage(company);
+      if (company.messageFormat === 'image') return { text: buildReply(company), format: 'image', content: { imageUrl: company.imageId ? `/admin/api/images/${company.imageId}` : company.imageUrl || '/admin/example-banner.jpg' } };
       return { text: buildReply(company), format: company.messageFormat ?? 'text', content: buildDelivery(company).body };
     });
     admin.put('/api/companies/:instance', async (request, reply) => {
       const expected = request.headers['if-match'];
       if (!expected) throw configError(428, 'version_required');
+      await checkImage(editedCompany(getCompany(request.params.instance), request.body));
       const version = await config.update(request.params.instance, request.body, /^"([a-f0-9]{64})"$/.exec(expected)?.[1] ?? 'invalid');
       return reply.header('etag', `"${version}"`).send({ status: 'saved' });
     });

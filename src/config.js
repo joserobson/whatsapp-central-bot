@@ -2,6 +2,7 @@ import { readFile, mkdir, open, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { validImageId } from './images.js';
 
 const nonempty = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 const digits = value => typeof value === 'string' && /^\d{8,15}$/.test(value);
@@ -17,6 +18,7 @@ export function validateConfig(raw) {
   for (const company of raw.companies) {
     if (!company || !nonempty(company.instance, 100) || !/^[a-zA-Z0-9_-]+$/.test(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
     instances.add(company.instance);
+    if (company.imageId !== undefined && company.imageId !== '' && !validImageId(company.imageId)) throw new Error('imagem enviada invalida');
     if (company.imageUrl !== undefined && !validImageUrl(company.imageUrl)) throw new Error('URL de imagem invalida');
     if (company.includePrefilledText !== undefined && typeof company.includePrefilledText !== 'boolean') throw new Error('opcao de mensagem pre-preenchida invalida');
     if (typeof company.prefilledText !== 'string' || company.prefilledText.length > 500 || (company.messageFormat !== 'vcard' && company.includePrefilledText !== false && !company.prefilledText.trim())) throw new Error('mensagem pre-preenchida invalida');
@@ -46,7 +48,7 @@ export function configError(statusCode, message) {
 
 export function editedCompany(company, fields) {
   const required = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
-  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText', 'imageUrl'];
+  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText', 'imageUrl', 'imageId'];
   if (!fields || typeof fields !== 'object' || Array.isArray(fields) || required.some(key => !Object.hasOwn(fields, key)) || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
   if (!Array.isArray(fields.agents) || fields.agents.length !== 3) throw configError(422, 'three_agents_required');
   if (fields.agents.some(agent => !agent || Object.keys(agent).length !== 2 || Object.keys(agent).some(key => !['label', 'phoneE164'].includes(key)))) throw configError(400, 'invalid_agent_fields');

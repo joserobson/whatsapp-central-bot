@@ -59,7 +59,7 @@ test('falha de publicação mantém arquivo e versão anterior', async () => {
 
 test('template segue referência sem labels, com links codificados e encerramento opcional', () => {
   const text = buildReply(company);
-  assert.equal(text, `Olá\n\n${company.agents.map(a => `☎️ https://wa.me/${a.phoneE164}?text=Oi%20%26%20caf%C3%A9`).join('\n')}`);
+  assert.equal(text, `Olá\n\n${company.agents.map(a => `☎️ https://wa.me/${a.phoneE164}?text=Oi%20%26%20caf%C3%A9`).join('\n\n')}`);
   assert.equal(buildReply({ ...company, closingText: 'Até logo' }), `${text}\n\nAté logo`);
 });
 

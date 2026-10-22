@@ -20,10 +20,11 @@ export function normalizeWebhook(body) {
 
 export const contactUrl = (company, agent) => `https://wa.me/${agent.phoneE164}${company.includePrefilledText === false ? '' : `?text=${encodeURIComponent(company.prefilledText)}`}`;
 
-export function buildDelivery(company) {
+export function buildDelivery(company, uploadedImage) {
+  if (company.messageFormat === 'image' && company.imageId && !uploadedImage) throw new Error('uploaded_image_unavailable');
   if (company.messageFormat === 'image') return {
     endpoint: 'sendMedia',
-    body: { mediatype: 'image', ...(company.imageUrl ? {} : { mimetype: 'image/jpeg' }), media: company.imageUrl || exampleMedia(), fileName: 'banner.jpg', caption: buildReply(company) }
+    body: { mediatype: 'image', ...(uploadedImage || !company.imageUrl ? { mimetype: 'image/jpeg' } : {}), media: uploadedImage ? uploadedImage.toString('base64') : company.imageUrl || exampleMedia(), fileName: 'banner.jpg', caption: buildReply(company) }
   };
   if (company.messageFormat === 'vcard') return {
     endpoint: 'sendContact',
@@ -49,17 +50,15 @@ export function buildDelivery(company) {
   };
 }
 
-export function buildDeliveries(company) {
-  if (company.messageFormat !== 'vcard') return [buildDelivery(company)];
+export function buildDeliveries(company, uploadedImage) {
+  if (company.messageFormat !== 'vcard') return [buildDelivery(company, uploadedImage)];
   return [{ endpoint: 'sendText', body: { text: buildReply(company), linkPreview: false } }, buildDelivery(company)];
 }
 
 export function buildReply(company) {
   if (company.messageFormat === 'vcard') return [company.welcomeText, company.closingText].filter(text => text.trim()).join('\n\n');
   const lines = [company.welcomeText, ''];
-  for (const agent of company.agents) {
-    lines.push(`☎️ ${contactUrl(company, agent)}`);
-  }
+  lines.push(company.agents.map(agent => `☎️ ${contactUrl(company, agent)}`).join('\n\n'));
   if (company.closingText.trim()) lines.push('', company.closingText);
   return lines.join('\n');
 }

@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createApp } from '../src/app.js';
 import { createConfigStore } from '../src/config.js';
 import { hashPassword } from '../src/admin/auth.js';
 import { createState } from '../src/state.js';
+import { createImageStore } from '../src/images.js';
 
 test('login, sessão, CSRF, edição, prévia, expiração e logout', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'panel-'));
@@ -17,7 +18,8 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
   await config.reload();
   let time = 0;
   const state = createState(join(dir, 'state.sqlite'));
-  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin: 'https://panel.example', now: () => time } });
+  const imageStore = createImageStore(join(dir, 'images'));
+  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, admin: { imageStore, enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin: 'https://panel.example', now: () => time } });
   const origin = 'https://panel.example';
   const login = () => app.inject({ method: 'POST', url: '/admin/api/login', headers: { origin }, payload: { username: 'admin', password: 'a-long-test-password' } });
   try {
@@ -30,6 +32,18 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     const cookie = result.headers['set-cookie'].split(';')[0];
     const csrf = result.json().csrf;
     const headers = { cookie, origin, 'x-csrf-token': csrf };
+    const uploadPath = '/admin/api/companies/alfa/image-upload';
+    const imageBody = { mimeType: 'image/jpeg', data: (await readFile(new URL('../src/admin/public/example-banner.jpg', import.meta.url))).toString('base64') };
+    assert.equal((await app.inject({ method: 'POST', url: uploadPath, headers: { origin }, payload: imageBody })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url: uploadPath, headers: { cookie, origin }, payload: imageBody })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: uploadPath, headers: { ...headers, origin: 'https://evil.example' }, payload: imageBody })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: uploadPath, headers, payload: { mimeType: 'image/jpeg', data: 'broken' } })).statusCode, 422);
+    const upload = await app.inject({ method: 'POST', url: uploadPath, headers, payload: imageBody });
+    assert.equal(upload.statusCode, 200);
+    const uploadedId = upload.json().id;
+    assert.equal(config.company('alfa').imageId, undefined);
+    assert.equal((await app.inject(`/admin/api/images/${uploadedId}`)).statusCode, 401);
+    assert.equal((await app.inject({ url: `/admin/api/images/${uploadedId}`, headers })).statusCode, 200);
     const reset = '/admin/api/companies/alfa/cooldown/reset';
     const release = { contact: '5511988887777' };
     for (const instance of ['alfa', 'beta']) state.sent({ instance, message_id: 'sent', contact: release.contact }, Date.now());
@@ -84,6 +98,9 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     const sampleImage = await app.inject('/admin/example-banner.jpg');
     assert.equal(sampleImage.statusCode, 200);
     assert.match(sampleImage.headers['content-type'], /image\/jpeg/);
+    payload.imageId = uploadedId;
+    const uploadedPreview = await app.inject({ method: 'POST', url: '/admin/api/companies/alfa/preview', headers, payload });
+    assert.equal(uploadedPreview.json().content.imageUrl, `/admin/api/images/${uploadedId}`);
     const updated = await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload });
     assert.equal(updated.statusCode, 200);
     const restarted = createConfigStore(path, { info() {}, error() {} });
@@ -91,6 +108,7 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.equal(restarted.company('alfa').cooldownHours, 1);
     assert.equal(restarted.company('alfa').messageFormat, 'image');
     assert.equal(restarted.company('alfa').imageUrl, '');
+    assert.equal(restarted.company('alfa').imageId, uploadedId);
     assert.equal(restarted.company('alfa').includePrefilledText, false);
     assert.equal(restarted.company('alfa').prefilledText, '');
     assert.notEqual(updated.headers.etag, current.headers.etag);

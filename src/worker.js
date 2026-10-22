@@ -1,6 +1,6 @@
 import { buildDeliveries, agentRowId, contactUrl } from './message.js';
 
-export function createWorker({ state, config, baseUrl, apiKey, logger = console, send = fetch, now = Date.now }) {
+export function createWorker({ state, config, baseUrl, apiKey, imageStore, logger = console, send = fetch, now = Date.now }) {
   let running = false;
   const counters = new Map();
   function count(instance, field) {
@@ -24,7 +24,8 @@ export function createWorker({ state, config, baseUrl, apiKey, logger = console,
       try {
         const agent = event.selection_id && company.messageFormat === 'list' && company.agents.find(item => agentRowId(item) === event.selection_id);
         if (event.selection_id && !agent && !event.delivery_plan) { state.discard(event, now()); return; }
-        const deliveries = event.delivery_plan ? JSON.parse(event.delivery_plan) : agent ? [{ endpoint: 'sendText', body: { text: `${agent.label}\n☎️ ${contactUrl(company, agent)}` } }] : buildDeliveries(company);
+        const uploadedImage = !event.delivery_plan && company.messageFormat === 'image' && company.imageId ? await imageStore?.load(company.imageId) : undefined;
+        const deliveries = event.delivery_plan ? JSON.parse(event.delivery_plan) : agent ? [{ endpoint: 'sendText', body: { text: `${agent.label}\n☎️ ${contactUrl(company, agent)}` } }] : buildDeliveries(company, uploadedImage);
         const multipart = Boolean(event.delivery_plan) || deliveries.length > 1;
         if (multipart && !event.delivery_plan) state.plan(event, deliveries);
         for (let step = event.delivery_step ?? 0; step < deliveries.length; step++) {
