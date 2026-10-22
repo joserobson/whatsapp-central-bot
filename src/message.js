@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+let exampleImage;
+const exampleMedia = () => exampleImage ??= readFileSync(new URL('./admin/public/example-banner.jpg', import.meta.url)).toString('base64');
 
 export const agentRowId = agent => `agent_${createHash('sha256').update(`${agent.phoneE164}:${agent.label}`).digest('hex').slice(0, 24)}`;
 
@@ -17,6 +21,10 @@ export function normalizeWebhook(body) {
 export const contactUrl = (company, agent) => `https://wa.me/${agent.phoneE164}${company.includePrefilledText === false ? '' : `?text=${encodeURIComponent(company.prefilledText)}`}`;
 
 export function buildDelivery(company) {
+  if (company.messageFormat === 'image') return {
+    endpoint: 'sendMedia',
+    body: { mediatype: 'image', ...(company.imageUrl ? {} : { mimetype: 'image/jpeg' }), media: company.imageUrl || exampleMedia(), fileName: 'banner.jpg', caption: buildReply(company) }
+  };
   if (company.messageFormat === 'vcard') return {
     endpoint: 'sendContact',
     body: { contact: company.agents.map(agent => ({ fullName: agent.label, wuid: agent.phoneE164, phoneNumber: `+${agent.phoneE164}`, organization: company.displayName })) }

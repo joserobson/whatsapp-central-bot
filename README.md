@@ -119,7 +119,20 @@ A instância da Evolution também pode ser alterada no editor de cada distribuid
 
 No painel, cada distribuidora pode escolher **Texto com links** (padrão) ou
 **Botões com links (experimental)**. Configurações antigas continuam enviando texto.
-O campo opcional `messageFormat` aceita `text`, `buttons`, `list` ou `vcard`.
+O campo opcional `messageFormat` aceita `text`, `buttons`, `list`, `vcard` ou `image`.
+
+**Imagem com links** envia uma única mensagem por `/message/sendMedia/{instance}`,
+com a imagem no topo e a saudação, três links e encerramento na legenda.
+Respeita a opção de incluir mensagem pré-preenchida nos links. No campo **URL da
+imagem**, informe uma URL HTTPS acessível pela Evolution, sem credenciais.
+Deixe vazio para usar o banner de exemplo incluído na aplicação, enviado em
+base64; o envio do exemplo não depende de acesso ao site da foto. A prévia usa
+o mesmo arquivo local e mostra um aviso se uma imagem personalizada não carregar.
+
+Imagem de exemplo: hortifruti, baixada de [Unsplash](https://images.unsplash.com/photo-1542838132-92c53300491e?w=1000&h=500&fit=crop&q=75),
+incluída em `src/admin/public/example-banner.jpg` (1000 x 500, JPEG).
+O campo opcional de configuração é `imageUrl`; configurações antigas continuam
+válidas. Se o envio ficar incerto, não há repetição automática nem fallback.
 
 **Contatos (vCard)** envia a saudação e o encerramento em texto e depois os três
 representantes agrupados via `/message/sendContact/{instance}`, com nome,

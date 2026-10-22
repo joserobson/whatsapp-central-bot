@@ -23,7 +23,7 @@ export function registerAdmin(app, config, options) {
   app.register(async admin => {
     admin.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store').header('x-content-type-options', 'nosniff').header('referrer-policy', 'no-referrer');
-      reply.header('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+      reply.header('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
       if (!request.url.startsWith('/admin/api/')) return;
       const mutating = !['GET', 'HEAD'].includes(request.method);
       if (mutating && (request.headers.origin !== origin || !request.headers['content-type']?.startsWith('application/json'))) return reply.code(403).send({ error: 'invalid_origin_or_content_type' });
@@ -41,7 +41,7 @@ export function registerAdmin(app, config, options) {
       const status = error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 503;
       reply.code(status).send({ error: status === 503 ? 'configuration_unavailable' : (error.code ? 'invalid_request' : error.message) });
     });
-    const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'application/javascript; charset=utf-8'], '/model.js': ['model.js', 'application/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
+    const assets = { '/example-banner.jpg': ['example-banner.jpg', 'image/jpeg'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'application/javascript; charset=utf-8'], '/model.js': ['model.js', 'application/javascript; charset=utf-8'], '/style.css': ['style.css', 'text/css; charset=utf-8'] };
     for (const [path, [file, type]] of Object.entries(assets)) {
       admin.get(path, async (_request, reply) => reply.type(type).send(await readFile(new URL(`./public/${file}`, import.meta.url))));
     }
@@ -82,7 +82,7 @@ export function registerAdmin(app, config, options) {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
       const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', imageUrl: company.imageUrl ?? '', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
     });
     admin.post('/api/companies/:instance/cooldown/reset', async request => {
       getCompany(request.params.instance);
@@ -93,6 +93,7 @@ export function registerAdmin(app, config, options) {
     });
     admin.post('/api/companies/:instance/preview', async request => {
       const company = editedCompany(getCompany(request.params.instance), request.body);
+      if (company.messageFormat === 'image') return { text: buildReply(company), format: 'image', content: { imageUrl: company.imageUrl || '/admin/example-banner.jpg' } };
       return { text: buildReply(company), format: company.messageFormat ?? 'text', content: buildDelivery(company).body };
     });
     admin.put('/api/companies/:instance', async (request, reply) => {

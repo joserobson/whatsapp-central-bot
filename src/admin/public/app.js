@@ -9,7 +9,7 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
+const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
 const dirty = () => original && hasChanges(original, draft());
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -29,12 +29,13 @@ function fill(fields) {
   $('includePrefilledText').checked = fields.includePrefilledText ?? true;
   $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
   $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
-  for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
+  $('image-settings').hidden = fields.messageFormat !== 'image';
+  for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl']) $(key).value = fields[key] ?? '';
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
 function validate() {
   const errors = validateDraft(draft());
-  for (const id of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
+  for (const id of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
     $(id).setAttribute('aria-invalid', String(Boolean(errors[id])));
     $(`error-${id}`).textContent = errors[id] ?? '';
   }
@@ -45,6 +46,15 @@ function validate() {
 function renderPreview(data, fields) {
   const container = $('preview');
   container.replaceChildren();
+  if (data.format === 'image') {
+    const banner = document.createElement('img'); banner.className = 'message-banner';
+    banner.alt = 'Imagem da mensagem'; banner.referrerPolicy = 'no-referrer'; banner.src = data.content.imageUrl;
+    const caption = document.createElement('div'); caption.textContent = data.text;
+    const error = document.createElement('p'); error.hidden = true; error.textContent = 'Não foi possível carregar a imagem. Confira se a URL está acessível.';
+    banner.addEventListener('error', () => { banner.hidden = true; error.hidden = false; });
+    container.append(banner, error, caption);
+    return;
+  }
   if (data.format === 'vcard') {
     const greeting = document.createElement('div'); greeting.textContent = data.text;
     const contacts = document.createElement('div'); contacts.className = 'contact-group';
@@ -143,7 +153,7 @@ $('company').addEventListener('change', () => { const next = $('company').value;
   if (dirty() && !confirm('Descartar as alterações pendentes e trocar de distribuidora?')) return;
   void run(async () => { await load(next); status('Configuração carregada.'); });
 });
-$('editor').addEventListener('input', () => { $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
+$('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('preview-button').addEventListener('click', () => void run(preview));
 $('editor').addEventListener('submit', event => { event.preventDefault(); if (!validate()) return;
   void run(async () => {

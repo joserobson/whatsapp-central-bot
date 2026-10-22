@@ -5,6 +5,11 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js';
 
 const nonempty = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 const digits = value => typeof value === 'string' && /^\d{8,15}$/.test(value);
+const validImageUrl = value => {
+  if (typeof value !== 'string' || value.length > 2000) return false;
+  if (!value) return true;
+  try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; } catch { return false; }
+};
 
 export function validateConfig(raw) {
   if (!raw || raw.schemaVersion !== 1 || !Number.isInteger(raw.defaultCooldownHours) || raw.defaultCooldownHours < 1 || raw.defaultCooldownHours > 720 || !Array.isArray(raw.companies) || raw.companies.length === 0) throw new Error('estrutura de configuracao invalida');
@@ -12,9 +17,10 @@ export function validateConfig(raw) {
   for (const company of raw.companies) {
     if (!company || !nonempty(company.instance, 100) || !/^[a-zA-Z0-9_-]+$/.test(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
     instances.add(company.instance);
+    if (company.imageUrl !== undefined && !validImageUrl(company.imageUrl)) throw new Error('URL de imagem invalida');
     if (company.includePrefilledText !== undefined && typeof company.includePrefilledText !== 'boolean') throw new Error('opcao de mensagem pre-preenchida invalida');
     if (typeof company.prefilledText !== 'string' || company.prefilledText.length > 500 || (company.messageFormat !== 'vcard' && company.includePrefilledText !== false && !company.prefilledText.trim())) throw new Error('mensagem pre-preenchida invalida');
-    if (company.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
+    if (company.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard', 'image'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
     if (typeof company.enabled !== 'boolean' || !nonempty(company.displayName, 100) || !nonempty(company.welcomeText, 1000) || typeof company.closingText !== 'string' || company.closingText.length > 500) throw new Error('campos de empresa invalidos');
     if (company.allowDuplicateAgentPhones !== undefined && typeof company.allowDuplicateAgentPhones !== 'boolean') throw new Error('permissao de telefone repetido invalida');
     if (company.messageFormat === 'vcard' && /[\r\n]/.test(company.displayName)) throw new Error('empresa no contato deve ocupar uma linha');
@@ -40,7 +46,7 @@ export function configError(statusCode, message) {
 
 export function editedCompany(company, fields) {
   const required = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
-  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText'];
+  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText', 'imageUrl'];
   if (!fields || typeof fields !== 'object' || Array.isArray(fields) || required.some(key => !Object.hasOwn(fields, key)) || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
   if (!Array.isArray(fields.agents) || fields.agents.length !== 3) throw configError(422, 'three_agents_required');
   if (fields.agents.some(agent => !agent || Object.keys(agent).length !== 2 || Object.keys(agent).some(key => !['label', 'phoneE164'].includes(key)))) throw configError(400, 'invalid_agent_fields');

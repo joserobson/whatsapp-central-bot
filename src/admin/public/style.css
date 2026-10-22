@@ -3,3 +3,4 @@
 .preview-choice{display:block;width:100%;margin-top:8px;background:#eef6f3;color:#236657;text-align:left}.list-reply{margin-top:16px;border-top:1px solid #e3ebe7;padding-top:12px}
 .checkbox-label{display:flex;align-items:center;gap:10px}.checkbox-label input{width:auto;margin:0}
 .contact-group{margin-top:18px;padding:14px;border:1px solid #dce7e2;border-radius:10px;background:#f4f8f6}.contact-card{padding:12px 0;border-top:1px solid #dce7e2;margin-top:10px}.contact-card small{color:#667c75}
+.message-banner{display:block;width:100%;height:auto;border-radius:8px;margin-bottom:14px}

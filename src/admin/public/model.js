@@ -2,7 +2,14 @@ const canonical = value => JSON.stringify(value, (_key, item) => item && typeof 
 export const hasChanges = (original, draft) => canonical(original) !== canonical(draft);
 export function validateDraft(draft) {
   const errors = {};
-  if (draft.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
+  if (draft.imageUrl !== undefined) {
+    let valid = typeof draft.imageUrl === 'string' && draft.imageUrl.length <= 2000;
+    if (valid && draft.imageUrl) {
+      try { const url = new URL(draft.imageUrl); valid = url.protocol === 'https:' && !url.username && !url.password; } catch { valid = false; }
+    }
+    if (!valid) errors.imageUrl = 'Use uma URL HTTPS sem usuário ou senha, ou deixe vazio para a imagem de exemplo.';
+  }
+  if (draft.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard', 'image'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
   if (draft.instance !== undefined && (typeof draft.instance !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 letras, números, hífen ou sublinhado.';
   if (draft.cooldownHours !== undefined && (!Number.isInteger(draft.cooldownHours) || draft.cooldownHours < 1 || draft.cooldownHours > 720)) errors.cooldownHours = 'Informe um número inteiro de 1 a 720 horas.';
   for (const [key, limit] of Object.entries({ welcomeText: 1000, closingText: 500, prefilledText: 500 })) {

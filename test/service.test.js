@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createConfigStore, validateConfig } from '../src/config.js';
@@ -18,6 +18,38 @@ const companies = ['distribuidora-alfa', 'distribuidora-beta', 'gama-alimentos']
 const logger = { info() {}, warn() {}, error() {} };
 const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = false) => ({
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
+});
+
+test('imagem envia banner e legenda em uma mensagem, com exemplo local ou URL HTTPS', async () => {
+  const bytes = await readFile(new URL('../src/admin/public/example-banner.jpg', import.meta.url));
+  assert.equal(bytes.subarray(0, 3).toString('hex'), 'ffd8ff');
+  for (const imageUrl of ['', 'https://example.com/banner.jpg']) {
+    const state = createState(':memory:');
+    const company = { ...companies[0], messageFormat: 'image', imageUrl, includePrefilledText: false };
+    const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+    const calls = [];
+    const worker = createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'test', send: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: true }; } });
+    try {
+      assert.doesNotThrow(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] }));
+      state.enqueue({ instance: company.instance, messageId: 'banner', contact: '5511988887777' });
+      await worker.tick(); await worker.tick();
+      assert.equal(calls.length, 1);
+      assert.match(calls[0].url, /\/message\/sendMedia\//);
+      assert.equal(calls[0].body.mediatype, 'image');
+      assert.equal(calls[0].body.caption, buildReply(company));
+      assert.equal((calls[0].body.caption.match(/https:\/\/wa.me\//g) ?? []).length, 3);
+      assert.doesNotMatch(calls[0].body.caption, /\?text=/);
+      if (imageUrl) assert.equal(calls[0].body.media, imageUrl);
+      else {
+        assert.deepEqual(Buffer.from(calls[0].body.media, 'base64'), bytes);
+        assert.equal(calls[0].body.mimetype, 'image/jpeg');
+      }
+      assert.equal(state.inspect(company.instance, 'banner').status, 'sent');
+    } finally { state.close(); }
+  }
+  for (const imageUrl of ['http://example.com/banner.jpg', 'file:///test.jpg', 'https://user:password@example.com/test.jpg', null, 123]) {
+    assert.throws(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [{ ...companies[0], messageFormat: 'image', imageUrl }] }));
+  }
 });
 
 test('vCard envia saudação e três contatos e retoma só a etapa pendente após reinício', async () => {
