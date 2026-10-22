@@ -17,6 +17,10 @@ export function normalizeWebhook(body) {
 export const contactUrl = (company, agent) => `https://wa.me/${agent.phoneE164}${company.includePrefilledText === false ? '' : `?text=${encodeURIComponent(company.prefilledText)}`}`;
 
 export function buildDelivery(company) {
+  if (company.messageFormat === 'vcard') return {
+    endpoint: 'sendContact',
+    body: { contact: company.agents.map(agent => ({ fullName: agent.label, wuid: agent.phoneE164, phoneNumber: `+${agent.phoneE164}`, organization: company.displayName })) }
+  };
   if (company.messageFormat === 'list') return {
     endpoint: 'sendList',
     body: {
@@ -37,7 +41,13 @@ export function buildDelivery(company) {
   };
 }
 
+export function buildDeliveries(company) {
+  if (company.messageFormat !== 'vcard') return [buildDelivery(company)];
+  return [{ endpoint: 'sendText', body: { text: buildReply(company), linkPreview: false } }, buildDelivery(company)];
+}
+
 export function buildReply(company) {
+  if (company.messageFormat === 'vcard') return [company.welcomeText, company.closingText].filter(text => text.trim()).join('\n\n');
   const lines = [company.welcomeText, ''];
   for (const agent of company.agents) {
     lines.push(`☎️ ${contactUrl(company, agent)}`);

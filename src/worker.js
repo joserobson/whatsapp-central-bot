@@ -1,4 +1,4 @@
-import { buildDelivery, agentRowId, contactUrl } from './message.js';
+import { buildDeliveries, agentRowId, contactUrl } from './message.js';
 
 export function createWorker({ state, config, baseUrl, apiKey, logger = console, send = fetch, now = Date.now }) {
   let running = false;
@@ -23,18 +23,24 @@ export function createWorker({ state, config, baseUrl, apiKey, logger = console,
       }
       try {
         const agent = event.selection_id && company.messageFormat === 'list' && company.agents.find(item => agentRowId(item) === event.selection_id);
-        if (event.selection_id && !agent) { state.discard(event, now()); return; }
-        const delivery = agent ? { endpoint: 'sendText', body: { text: `${agent.label}\n☎️ ${contactUrl(company, agent)}` } } : buildDelivery(company);
-        const response = await send(`${baseUrl.replace(/\/$/, '')}/message/${delivery.endpoint}/${encodeURIComponent(event.instance)}`, {
-          method: 'POST',
-          headers: { apikey: apiKey, 'content-type': 'application/json' },
-          body: JSON.stringify({ number: event.contact, ...delivery.body }),
-          signal: AbortSignal.timeout(10_000)
-        });
-        if (!response.ok) {
-          // 5xx/timeouts can represent an accepted send. Stop automatic retries.
-          if (response.status >= 500) { state.ambiguous(event, now()); logger.error({ event: 'reply_failed', instance: event.instance, reason: 'delivery_uncertain' }); return; }
-          throw new Error(`http_${response.status}`);
+        if (event.selection_id && !agent && !event.delivery_plan) { state.discard(event, now()); return; }
+        const deliveries = event.delivery_plan ? JSON.parse(event.delivery_plan) : agent ? [{ endpoint: 'sendText', body: { text: `${agent.label}\n☎️ ${contactUrl(company, agent)}` } }] : buildDeliveries(company);
+        const multipart = Boolean(event.delivery_plan) || deliveries.length > 1;
+        if (multipart && !event.delivery_plan) state.plan(event, deliveries);
+        for (let step = event.delivery_step ?? 0; step < deliveries.length; step++) {
+          const delivery = deliveries[step];
+          const response = await send(`${baseUrl.replace(/\/$/, '')}/message/${delivery.endpoint}/${encodeURIComponent(event.instance)}`, {
+            method: 'POST',
+            headers: { apikey: apiKey, 'content-type': 'application/json' },
+            body: JSON.stringify({ number: event.contact, ...delivery.body }),
+            signal: AbortSignal.timeout(10_000)
+          });
+          if (!response.ok) {
+            // 5xx/timeouts can represent an accepted send. Stop automatic retries.
+            if (response.status >= 500) { state.ambiguous(event, now()); logger.error({ event: 'reply_failed', instance: event.instance, reason: 'delivery_uncertain' }); return; }
+            throw new Error(`http_${response.status}`);
+          }
+          if (multipart) state.advance(event, step + 1, now());
         }
         state.sent(event, now());
         count(event.instance, 'sent');

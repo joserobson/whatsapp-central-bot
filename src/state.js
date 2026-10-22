@@ -16,6 +16,8 @@ export function createState(path) {
     PRIMARY KEY (instance, contact)
   );`);
   if (!db.pragma('table_info(events)').some(column => column.name === 'selection_id')) db.exec('ALTER TABLE events ADD COLUMN selection_id TEXT');
+  if (!db.pragma('table_info(events)').some(column => column.name === 'delivery_plan')) db.exec('ALTER TABLE events ADD COLUMN delivery_plan TEXT');
+  if (!db.pragma('table_info(events)').some(column => column.name === 'delivery_step')) db.exec('ALTER TABLE events ADD COLUMN delivery_step INTEGER NOT NULL DEFAULT 0');
   // An in-flight send at a crash is ambiguous: it must be reconciled manually.
   db.prepare("UPDATE events SET status = 'ambiguous', last_error = 'interrupted_send' WHERE status = 'processing'").run();
   const insert = db.prepare("INSERT OR IGNORE INTO events (instance,message_id,contact,status,next_attempt_at,created_at,updated_at,selection_id) VALUES (?,?,?,'pending',?,?,?,?)");
@@ -31,7 +33,7 @@ export function createState(path) {
     if (!event) return null;
     const windowMs = resolveCooldownMs(event.instance);
     const previous = cooldown.get(event.instance, event.contact);
-    if (!event.selection_id && previous && previous.sent_at + windowMs > now) {
+    if (!event.selection_id && !event.delivery_step && previous && previous.sent_at + windowMs > now) {
       skipped.run(now, event.instance, event.message_id);
       return { ...event, skipped: true };
     }
@@ -41,6 +43,11 @@ export function createState(path) {
   return {
     enqueue(event) { const now = Date.now(); return insert.run(event.instance, event.messageId, event.contact, now, now, now, event.selectionId ?? null).changes === 1; },
     discard(event, now) { skipped.run(now, event.instance, event.message_id); },
+    plan(event, deliveries) { db.prepare('UPDATE events SET delivery_plan = ? WHERE instance = ? AND message_id = ?').run(JSON.stringify(deliveries), event.instance, event.message_id); },
+    advance(event, step, now) { db.transaction(() => {
+      db.prepare('UPDATE events SET delivery_step = ?, updated_at = ? WHERE instance = ? AND message_id = ?').run(step, now, event.instance, event.message_id);
+      markCooldown.run(event.instance, event.contact, now);
+    })(); },
     claim,
     clearCooldown(instance, contact) { return db.prepare('DELETE FROM cooldowns WHERE instance = ? AND contact = ?').run(instance, contact).changes; },
     sent(event, now) { db.transaction(() => { sent.run(now, event.instance, event.message_id); if (!event.selection_id) markCooldown.run(event.instance, event.contact, now); })(); },

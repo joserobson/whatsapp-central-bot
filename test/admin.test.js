@@ -71,12 +71,17 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.equal(listPreview.json().content.sections[0].rows.length, 3);
     assert.equal(listPreview.json().content.buttonText, 'Escolher atendente');
     assert.doesNotMatch(listPreview.json().text, /\?text=/);
+    payload.messageFormat = 'vcard';
+    const cardsPreview = await app.inject({ method: 'POST', url: '/admin/api/companies/alfa/preview', headers, payload });
+    assert.equal(cardsPreview.json().format, 'vcard');
+    assert.equal(cardsPreview.json().content.contact.length, 3);
+    assert.doesNotMatch(cardsPreview.json().text, /wa.me/);
     const updated = await app.inject({ method: 'PUT', url: '/admin/api/companies/alfa', headers: { ...headers, 'if-match': current.headers.etag }, payload });
     assert.equal(updated.statusCode, 200);
     const restarted = createConfigStore(path, { info() {}, error() {} });
     await restarted.reload();
     assert.equal(restarted.company('alfa').cooldownHours, 1);
-    assert.equal(restarted.company('alfa').messageFormat, 'list');
+    assert.equal(restarted.company('alfa').messageFormat, 'vcard');
     assert.equal(restarted.company('alfa').includePrefilledText, false);
     assert.equal(restarted.company('alfa').prefilledText, '');
     assert.notEqual(updated.headers.etag, current.headers.etag);

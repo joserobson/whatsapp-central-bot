@@ -119,7 +119,21 @@ A instância da Evolution também pode ser alterada no editor de cada distribuid
 
 No painel, cada distribuidora pode escolher **Texto com links** (padrão) ou
 **Botões com links (experimental)**. Configurações antigas continuam enviando texto.
-O campo opcional `messageFormat` aceita `text`, `buttons` ou `list`.
+O campo opcional `messageFormat` aceita `text`, `buttons`, `list` ou `vcard`.
+
+**Contatos (vCard)** envia a saudação e o encerramento em texto e depois os três
+representantes agrupados via `/message/sendContact/{instance}`, com nome,
+telefone e distribuidora. Não usa imagem, URL ou mensagem pré-preenchida.
+A aparência do grupo e as ações disponíveis precisam ser conferidas no WhatsApp.
+A prévia ilustra as duas mensagens, sem realizar envio.
+
+O progresso desse envio é persistido nas colunas `delivery_plan` e `delivery_step`
+do SQLite (adicionadas automaticamente). Se os contatos forem recusados após a
+saudação, uma tentativa posterior retoma somente a etapa pendente, inclusive
+após reinício, usando os contatos originalmente preparados. O cooldown começa
+após a saudação para impedir novos menus durante a tentativa e é atualizado na
+conclusão. Falhas incertas em qualquer etapa exigem reconciliação manual e não
+provocam reenvio automático. Faça backup privado do volume antes de atualizar.
 
 A opção **Incluir mensagem pré-preenchida no link** controla o parâmetro `?text=`
 em todos os formatos, inclusive na resposta após escolher um item da lista.

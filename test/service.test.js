@@ -20,6 +20,58 @@ const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = fa
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
 });
 
+test('vCard envia saudação e três contatos e retoma só a etapa pendente após reinício', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'vcard-flow-'));
+  const path = join(dir, 'state.sqlite');
+  let state = createState(path);
+  const company = { ...companies[0], messageFormat: 'vcard', prefilledText: '' };
+  const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+  const calls = [];
+  let time = Date.now();
+  const event = { instance: company.instance, contact: '5511988887777', messageId: 'cards' };
+  const makeWorker = () => createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'test', now: () => time,
+    send: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: calls.length !== 2, status: calls.length === 2 ? 429 : 200 }; } });
+  try {
+    assert.doesNotThrow(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] }));
+    state.enqueue(event); time = Date.now(); await makeWorker().tick();
+    assert.match(calls[0].url, /sendText/);
+    assert.equal(calls[0].body.text, `${company.welcomeText}\n\n${company.closingText}`);
+    assert.equal(calls[0].body.linkPreview, false);
+    assert.match(calls[1].url, /sendContact/);
+    assert.deepEqual(calls[1].body.contact, company.agents.map(agent => ({ fullName: agent.label, wuid: agent.phoneE164, phoneNumber: `+${agent.phoneE164}`, organization: company.displayName })));
+    assert.equal(state.inspect(event.instance, event.messageId).delivery_step, 1);
+    state.close(); state = createState(path);
+    company.messageFormat = 'text'; // A pending vCard keeps the original contacts and order.
+    time += 5000; await makeWorker().tick();
+    assert.equal(calls.length, 3);
+    assert.match(calls[2].url, /sendContact/);
+    assert.deepEqual(calls[2].body, calls[1].body);
+    assert.equal(state.inspect(event.instance, event.messageId).status, 'sent');
+    assert.equal(state.enqueue(event), false);
+    state.enqueue({ ...event, messageId: 'cooldown' }); await makeWorker().tick();
+    assert.equal(calls.length, 3);
+  } finally { state.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('vCard com entrega incerta não repete saudação nem contatos', async () => {
+  for (const uncertainStep of [0, 1]) {
+    const state = createState(':memory:');
+    const company = { ...companies[0], messageFormat: 'vcard' };
+    const config = { active: { defaultCooldownHours: 24 }, company: () => company };
+    let calls = 0;
+    const worker = createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'test', send: async () => {
+      if (calls++ === uncertainStep) throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+      return { ok: true };
+    } });
+    try {
+      state.enqueue({ instance: company.instance, contact: '5511988887777', messageId: 'uncertain-vcard' });
+      await worker.tick(); await worker.tick();
+      assert.equal(calls, uncertainStep + 1);
+      assert.equal(state.inspect(company.instance, 'uncertain-vcard').status, 'ambiguous');
+    } finally { state.close(); }
+  }
+});
+
 test('mensagem no link é opcional e mantém comportamento legado', () => {
   const company = { ...companies[0], includePrefilledText: false, prefilledText: '' };
   assert.doesNotThrow(() => validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] }));
@@ -46,6 +98,8 @@ test('migração da fila legada preserva eventos e cooldown', async () => {
   const state = createState(path);
   try {
     assert.equal(state.inspect('alfa', 'legacy').selection_id, null);
+    assert.equal(state.inspect('alfa', 'legacy').delivery_step, 0);
+    assert.equal(state.inspect('alfa', 'legacy').delivery_plan, null);
     assert.equal(state.claim(1001, () => 3600000).skipped, true);
     assert.equal(state.enqueue({ instance: 'alfa', messageId: 'legacy', contact: '5511988887777' }), false);
   } finally { state.close(); await rm(dir, { recursive: true, force: true }); }

@@ -2,17 +2,18 @@ const canonical = value => JSON.stringify(value, (_key, item) => item && typeof 
 export const hasChanges = (original, draft) => canonical(original) !== canonical(draft);
 export function validateDraft(draft) {
   const errors = {};
-  if (draft.messageFormat !== undefined && !['text', 'buttons', 'list'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
+  if (draft.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
   if (draft.instance !== undefined && (typeof draft.instance !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 letras, números, hífen ou sublinhado.';
   if (draft.cooldownHours !== undefined && (!Number.isInteger(draft.cooldownHours) || draft.cooldownHours < 1 || draft.cooldownHours > 720)) errors.cooldownHours = 'Informe um número inteiro de 1 a 720 horas.';
   for (const [key, limit] of Object.entries({ welcomeText: 1000, closingText: 500, prefilledText: 500 })) {
-    const required = key !== 'closingText' && !(key === 'prefilledText' && draft.includePrefilledText === false);
+    const required = key !== 'closingText' && !(key === 'prefilledText' && (draft.includePrefilledText === false || draft.messageFormat === 'vcard'));
     if ((required && !draft[key].trim()) || draft[key].length > limit) errors[key] = `Preencha com até ${limit} caracteres.`;
   }
   draft.agents.forEach((agent, n) => {
     if (!agent.label.trim() || agent.label.length > 80) errors[`label-${n}`] = 'Informe um nome com até 80 caracteres.';
     if (draft.messageFormat === 'buttons' && agent.label.length > 20) errors[`label-${n}`] = 'Para botões, use um nome com até 20 caracteres.';
     if (draft.messageFormat === 'list' && agent.label.length > 24) errors[`label-${n}`] = 'Para listas, use um nome com até 24 caracteres.';
+    if (draft.messageFormat === 'vcard' && /[\r\n]/.test(agent.label)) errors[`label-${n}`] = 'Use um nome de contato em uma única linha.';
     if (!/^\d{8,15}$/.test(agent.phoneE164)) errors[`phone-${n}`] = 'Informe DDI, DDD e número, somente dígitos.';
   });
   return errors;

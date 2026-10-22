@@ -13,10 +13,11 @@ export function validateConfig(raw) {
     if (!company || !nonempty(company.instance, 100) || !/^[a-zA-Z0-9_-]+$/.test(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
     instances.add(company.instance);
     if (company.includePrefilledText !== undefined && typeof company.includePrefilledText !== 'boolean') throw new Error('opcao de mensagem pre-preenchida invalida');
-    if (typeof company.prefilledText !== 'string' || company.prefilledText.length > 500 || (company.includePrefilledText !== false && !company.prefilledText.trim())) throw new Error('mensagem pre-preenchida invalida');
-    if (company.messageFormat !== undefined && !['text', 'buttons', 'list'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
+    if (typeof company.prefilledText !== 'string' || company.prefilledText.length > 500 || (company.messageFormat !== 'vcard' && company.includePrefilledText !== false && !company.prefilledText.trim())) throw new Error('mensagem pre-preenchida invalida');
+    if (company.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
     if (typeof company.enabled !== 'boolean' || !nonempty(company.displayName, 100) || !nonempty(company.welcomeText, 1000) || typeof company.closingText !== 'string' || company.closingText.length > 500) throw new Error('campos de empresa invalidos');
     if (company.allowDuplicateAgentPhones !== undefined && typeof company.allowDuplicateAgentPhones !== 'boolean') throw new Error('permissao de telefone repetido invalida');
+    if (company.messageFormat === 'vcard' && /[\r\n]/.test(company.displayName)) throw new Error('empresa no contato deve ocupar uma linha');
     if (!Array.isArray(company.agents) || (company.enabled && company.agents.length !== 3)) throw new Error('empresa habilitada deve ter tres atendentes');
     const phones = new Set();
     for (const agent of company.agents) {
@@ -25,6 +26,7 @@ export function validateConfig(raw) {
       phones.add(agent.phoneE164);
       if (company.messageFormat === 'buttons' && agent.label.length > 20) throw new Error('nome do botao deve ter ate 20 caracteres');
       if (company.messageFormat === 'list' && agent.label.length > 24) throw new Error('nome na lista deve ter ate 24 caracteres');
+      if (company.messageFormat === 'vcard' && /[\r\n]/.test(agent.label)) throw new Error('nome do contato deve ocupar uma linha');
     }
     if (company.cooldownHours !== undefined && (!Number.isInteger(company.cooldownHours) || company.cooldownHours < 1 || company.cooldownHours > 720)) throw new Error('cooldown invalido');
     if (company.ignoredContacts !== undefined && (!Array.isArray(company.ignoredContacts) || company.ignoredContacts.some(phone => !digits(phone)))) throw new Error('contatos ignorados invalidos');

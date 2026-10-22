@@ -27,7 +27,8 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
 }
 function fill(fields) {
   $('includePrefilledText').checked = fields.includePrefilledText ?? true;
-  $('prefilledText').required = $('includePrefilledText').checked;
+  $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
+  $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
   for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours']) $(key).value = fields[key];
   [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
 }
@@ -44,6 +45,21 @@ function validate() {
 function renderPreview(data, fields) {
   const container = $('preview');
   container.replaceChildren();
+  if (data.format === 'vcard') {
+    const greeting = document.createElement('div'); greeting.textContent = data.text;
+    const contacts = document.createElement('div'); contacts.className = 'contact-group';
+    const heading = document.createElement('strong'); heading.textContent = '3 contatos'; contacts.append(heading);
+    for (const contact of data.content.contact) {
+      const card = document.createElement('div'); card.className = 'contact-card';
+      const name = document.createElement('strong'); name.textContent = contact.fullName;
+      const phone = document.createElement('div'); phone.textContent = contact.phoneNumber;
+      const company = document.createElement('small'); company.textContent = contact.organization;
+      card.append(name, phone, company); contacts.append(card);
+    }
+    const note = document.createElement('p'); note.textContent = 'Enviado depois da saudação, em uma mensagem de contatos agrupados. A aparência real depende do WhatsApp.';
+    container.append(greeting, contacts, note);
+    return;
+  }
   if (data.format === 'list') {
     const body = document.createElement('div');
     body.textContent = [data.content.title, data.content.description, data.content.footerText].filter(Boolean).join('\n\n');
@@ -127,7 +143,7 @@ $('company').addEventListener('change', () => { const next = $('company').value;
   if (dirty() && !confirm('Descartar as alterações pendentes e trocar de distribuidora?')) return;
   void run(async () => { await load(next); status('Configuração carregada.'); });
 });
-$('editor').addEventListener('input', () => { $('prefilledText').required = $('includePrefilledText').checked; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
+$('editor').addEventListener('input', () => { $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('preview-button').addEventListener('click', () => void run(preview));
 $('editor').addEventListener('submit', event => { event.preventDefault(); if (!validate()) return;
   void run(async () => {
