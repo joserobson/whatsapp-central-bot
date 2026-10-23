@@ -82,7 +82,7 @@ export function registerAdmin(app, config, options) {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;
       const cooldownHours = company.cooldownHours ?? config.active.defaultCooldownHours;
-      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, messageFormat: company.messageFormat ?? 'text', imageUrl: company.imageUrl ?? '', imageId: company.imageId ?? '', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
+      return reply.header('etag', `"${config.version}"`).send({ fields: { instance: company.instance, enabled: company.enabled, hasEvolutionToken: Boolean(company.evolutionToken), messageFormat: company.messageFormat ?? 'text', imageUrl: company.imageUrl ?? '', imageId: company.imageId ?? '', includePrefilledText: company.includePrefilledText ?? true, welcomeText, closingText, prefilledText, agents, cooldownHours } });
     });
     admin.post('/api/companies/:instance/image-upload', { bodyLimit: 7 * 1024 * 1024 }, async request => {
       getCompany(request.params.instance);
@@ -118,6 +118,14 @@ export function registerAdmin(app, config, options) {
       await checkImage(editedCompany(getCompany(request.params.instance), request.body));
       const version = await config.update(request.params.instance, request.body, /^"([a-f0-9]{64})"$/.exec(expected)?.[1] ?? 'invalid');
       return reply.header('etag', `"${version}"`).send({ status: 'saved' });
+    });
+    admin.put('/api/companies/:instance/status', async (request, reply) => {
+      const expected = request.headers['if-match'];
+      if (!expected) throw configError(428, 'version_required');
+      const body = request.body;
+      if (!body || Object.keys(body).length !== 1 || typeof body.enabled !== 'boolean') throw configError(422, 'invalid_enabled_value');
+      const version = await config.setEnabled(request.params.instance, body.enabled, /^"([a-f0-9]{64})"$/.exec(expected)?.[1] ?? 'invalid');
+      return reply.header('etag', `"${version}"`).send({ status: 'saved', enabled: body.enabled });
     });
   }, { prefix: '/admin' });
 }

@@ -10,13 +10,17 @@ export function validateDraft(draft) {
     if (!valid) errors.imageUrl = 'Use uma URL HTTPS sem usuário ou senha, ou deixe vazio para a imagem de exemplo.';
   }
   if (draft.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard', 'image'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
+  if (draft.evolutionToken !== undefined && (typeof draft.evolutionToken !== 'string' || draft.evolutionToken.length > 500 || (draft.evolutionToken && !draft.evolutionToken.trim()))) errors.evolutionToken = 'Informe um token válido com até 500 caracteres.';
   if (draft.instance !== undefined && (typeof draft.instance !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 letras, números, hífen ou sublinhado.';
   if (draft.cooldownHours !== undefined && (!Number.isInteger(draft.cooldownHours) || draft.cooldownHours < 1 || draft.cooldownHours > 720)) errors.cooldownHours = 'Informe um número inteiro de 1 a 720 horas.';
+  const agentCount = Array.isArray(draft.agents) ? draft.agents.length : 0;
+  if (agentCount < 1 || agentCount > 10) errors.agents = 'Adicione de 1 a 10 representantes.';
+  if (draft.messageFormat === 'buttons' && agentCount > 3) errors.agents = 'O formato de botões aceita até 3 representantes.';
   for (const [key, limit] of Object.entries({ welcomeText: 1000, closingText: 500, prefilledText: 500 })) {
     const required = key !== 'closingText' && !(key === 'prefilledText' && (draft.includePrefilledText === false || draft.messageFormat === 'vcard'));
     if ((required && !draft[key].trim()) || draft[key].length > limit) errors[key] = `Preencha com até ${limit} caracteres.`;
   }
-  draft.agents.forEach((agent, n) => {
+  (Array.isArray(draft.agents) ? draft.agents : []).forEach((agent, n) => {
     if (!agent.label.trim() || agent.label.length > 80) errors[`label-${n}`] = 'Informe um nome com até 80 caracteres.';
     if (draft.messageFormat === 'buttons' && agent.label.length > 20) errors[`label-${n}`] = 'Para botões, use um nome com até 20 caracteres.';
     if (draft.messageFormat === 'list' && agent.label.length > 24) errors[`label-${n}`] = 'Para listas, use um nome com até 24 caracteres.';
@@ -26,5 +30,5 @@ export function validateDraft(draft) {
   return errors;
 }
 export function errorMessage(status) {
-  return ({ 401: 'Sua sessão expirou. Entre novamente; o rascunho permanece nesta página.', 403: 'Acesso recusado. Entre novamente para renovar a sessão.', 412: 'A configuração mudou. Seu rascunho foi preservado; recarregue a versão atual para comparar.', 413: 'Arquivo muito grande. Use uma imagem de até 5 MB.', 415: 'Formato não aceito. Use JPEG ou PNG.', 422: 'Confira os campos: textos, três representantes e telefones válidos sem duplicidade não autorizada.', 429: 'Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.' })[status] ?? 'Não foi possível concluir. Seu rascunho foi preservado; tente novamente.';
+  return ({ 401: 'Sua sessão expirou. Entre novamente; o rascunho permanece nesta página.', 403: 'Acesso recusado. Entre novamente para renovar a sessão.', 412: 'A configuração mudou. Seu rascunho foi preservado; recarregue a versão atual para comparar.', 413: 'Arquivo muito grande. Use uma imagem de até 5 MB.', 415: 'Formato não aceito. Use JPEG ou PNG.', 422: 'Confira os campos: 1 a 10 representantes, textos e telefones válidos sem duplicidade não autorizada.', 429: 'Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.' })[status] ?? 'Não foi possível concluir. Seu rascunho foi preservado; tente novamente.';
 }

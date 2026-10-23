@@ -21,6 +21,25 @@ const payload = (instance, id, jid = '5511988887777@s.whatsapp.net', fromMe = fa
   event: 'messages.upsert', instance, data: { key: { id, remoteJid: jid, fromMe } }
 });
 
+test('worker usa token Evolution por distribuidora e mantém a chave global como fallback', async () => {
+  const state = createState(':memory:');
+  const companiesWithTokens = [
+    { ...companies[0], evolutionToken: 'token-alfa' },
+    companies[1]
+  ];
+  const config = { active: { defaultCooldownHours: 24 }, company: instance => companiesWithTokens.find(company => company.instance === instance) };
+  const requests = [];
+  const worker = createWorker({ state, config, logger, baseUrl: 'http://evolution', apiKey: 'global-key', send: async (url, options) => { requests.push({ url, apiKey: options.headers.apikey }); return { ok: true }; } });
+  try {
+    state.enqueue({ instance: companies[0].instance, messageId: 'key-alpha', contact: '5511988887777' });
+    state.enqueue({ instance: companies[1].instance, messageId: 'key-beta', contact: '5511988886666' });
+    await worker.tick(); await worker.tick();
+    assert.deepEqual(requests.map(request => request.apiKey), ['token-alfa', 'global-key']);
+    assert.match(requests[0].url, /distribuidora-alfa/);
+    assert.match(requests[1].url, /distribuidora-beta/);
+  } finally { state.close(); }
+});
+
 test('worker envia imagem de upload em base64 e não substitui arquivo ausente por exemplo', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'upload-worker-'));
   const imageStore = createImageStore(dir);

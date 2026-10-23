@@ -37,7 +37,7 @@ export function createWorker({ state, config, baseUrl, apiKey, imageStore, logge
           logger.info({ event: 'reply_attempt', instance: event.instance, messageRef: messageRef(event.message_id), attempt: event.attempts, step: step + 1, endpoint: delivery.endpoint });
           const response = await send(`${baseUrl.replace(/\/$/, '')}/message/${delivery.endpoint}/${encodeURIComponent(event.instance)}`, {
             method: 'POST',
-            headers: { apikey: apiKey, 'content-type': 'application/json' },
+            headers: { apikey: company.evolutionToken || apiKey, 'content-type': 'application/json' },
             body: JSON.stringify({ number: event.contact, ...delivery.body }),
             signal: AbortSignal.timeout(10_000)
           });

@@ -24,9 +24,11 @@ export function validateConfig(raw) {
     if (typeof company.prefilledText !== 'string' || company.prefilledText.length > 500 || (company.messageFormat !== 'vcard' && company.includePrefilledText !== false && !company.prefilledText.trim())) throw new Error('mensagem pre-preenchida invalida');
     if (company.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard', 'image'].includes(company.messageFormat)) throw new Error('formato de mensagem invalido');
     if (typeof company.enabled !== 'boolean' || !nonempty(company.displayName, 100) || !nonempty(company.welcomeText, 1000) || typeof company.closingText !== 'string' || company.closingText.length > 500) throw new Error('campos de empresa invalidos');
+    if (company.evolutionToken !== undefined && !nonempty(company.evolutionToken, 500)) throw new Error('token da instancia invalido');
     if (company.allowDuplicateAgentPhones !== undefined && typeof company.allowDuplicateAgentPhones !== 'boolean') throw new Error('permissao de telefone repetido invalida');
     if (company.messageFormat === 'vcard' && /[\r\n]/.test(company.displayName)) throw new Error('empresa no contato deve ocupar uma linha');
-    if (!Array.isArray(company.agents) || (company.enabled && company.agents.length !== 3)) throw new Error('empresa habilitada deve ter tres atendentes');
+    if (!Array.isArray(company.agents) || (company.enabled && (company.agents.length < 1 || company.agents.length > 10))) throw new Error('empresa habilitada deve ter de um a dez atendentes');
+    if (company.messageFormat === 'buttons' && company.agents.length > 3) throw new Error('formato de botoes permite ate tres atendentes');
     const phones = new Set();
     for (const agent of company.agents) {
       const phone = agent && digits(agent.phoneE164) ? parsePhoneNumberFromString(`+${agent.phoneE164}`) : null;
@@ -48,11 +50,18 @@ export function configError(statusCode, message) {
 
 export function editedCompany(company, fields) {
   const required = ['welcomeText', 'closingText', 'prefilledText', 'agents'];
-  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText', 'imageUrl', 'imageId'];
+  const allowed = [...required, 'cooldownHours', 'instance', 'messageFormat', 'includePrefilledText', 'imageUrl', 'imageId', 'evolutionToken', 'useSharedEvolutionKey'];
   if (!fields || typeof fields !== 'object' || Array.isArray(fields) || required.some(key => !Object.hasOwn(fields, key)) || Object.keys(fields).some(key => !allowed.includes(key))) throw configError(400, 'invalid_fields');
-  if (!Array.isArray(fields.agents) || fields.agents.length !== 3) throw configError(422, 'three_agents_required');
+  if (Object.hasOwn(fields, 'evolutionToken') && (typeof fields.evolutionToken !== 'string' || fields.evolutionToken.length > 500 || (fields.evolutionToken && !fields.evolutionToken.trim()))) throw configError(422, 'invalid_evolution_token');
+  if (Object.hasOwn(fields, 'useSharedEvolutionKey') && typeof fields.useSharedEvolutionKey !== 'boolean') throw configError(422, 'invalid_evolution_auth_mode');
+  if (fields.useSharedEvolutionKey === false && !fields.evolutionToken?.trim() && !company.evolutionToken) throw configError(422, 'instance_token_required');
+  if (!Array.isArray(fields.agents) || fields.agents.length < 1 || fields.agents.length > 10 || (fields.messageFormat === 'buttons' && fields.agents.length > 3)) throw configError(422, 'invalid_agent_count');
   if (fields.agents.some(agent => !agent || Object.keys(agent).length !== 2 || Object.keys(agent).some(key => !['label', 'phoneE164'].includes(key)))) throw configError(400, 'invalid_agent_fields');
-  const candidate = { ...company, ...structuredClone(fields) };
+  const { evolutionToken, useSharedEvolutionKey, ...editableFields } = fields;
+  const candidate = { ...company, ...structuredClone(editableFields) };
+  if (useSharedEvolutionKey === true) delete candidate.evolutionToken;
+  else if (typeof evolutionToken === 'string' && evolutionToken.trim()) candidate.evolutionToken = evolutionToken.trim();
+  else if (fields.instance && fields.instance !== company.instance && company.evolutionToken) throw configError(422, 'instance_token_required');
   try { validateConfig({ schemaVersion: 1, defaultCooldownHours: 24, companies: [candidate] }); }
   catch { throw configError(422, 'invalid_company'); }
   return candidate;
@@ -118,6 +127,24 @@ export function createConfigStore(path, logger = console, { seedPath, io = { ope
       active = candidate;
       fingerprint = hash(bytes);
       logger.info({ event: 'config_saved', instance, version: fingerprint });
+      return fingerprint;
+    }),
+    setEnabled: (instance, enabled, expectedVersion) => serial(async () => {
+      await load();
+      if (!valid || !active) throw configError(503, 'configuration_unavailable');
+      if (!expectedVersion) throw configError(428, 'version_required');
+      if (expectedVersion !== fingerprint) throw configError(412, 'configuration_changed');
+      if (typeof enabled !== 'boolean') throw configError(422, 'invalid_enabled_value');
+      const index = active.companies.findIndex(item => item.instance === instance);
+      if (index < 0) throw configError(404, 'company_not_found');
+      const candidate = structuredClone(active);
+      candidate.companies[index].enabled = enabled;
+      try { validateConfig(candidate); } catch { throw configError(422, 'invalid_configuration'); }
+      const bytes = JSON.stringify(candidate, null, 2) + '\n';
+      try { await publish(bytes); } catch { throw configError(503, 'configuration_write_failed'); }
+      active = candidate;
+      fingerprint = hash(bytes);
+      logger.info({ event: 'company_status_saved', instance, enabled, version: fingerprint });
       return fingerprint;
     }),
     get active() { return active; }, get version() { return fingerprint; },

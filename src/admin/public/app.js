@@ -9,8 +9,14 @@ let busy = false;
 let latest;
 let previewNumber = 0;
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
-const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: [0, 1, 2].map(n => ({ label: $(`label-${n}`).value, phoneE164: $(`phone-${n}`).value })) });
-const dirty = () => original && hasChanges(original, draft());
+const agentBlocks = () => Array.from($('agents').children);
+const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: agentBlocks().map(block => ({ label: block.querySelector('[data-agent-label]').value, phoneE164: block.querySelector('[data-agent-phone]').value })), evolutionToken: $('useSharedEvolutionKey').checked ? '' : $('evolutionToken').value, useSharedEvolutionKey: $('useSharedEvolutionKey').checked });
+const comparable = fields => { const { enabled, hasEvolutionToken, evolutionToken, useSharedEvolutionKey, ...editable } = fields; return editable; };
+const dirty = () => {
+  if (!original) return false;
+  const current = draft();
+  return hasChanges(comparable(original), comparable(current)) || Boolean(current.evolutionToken.trim()) || current.useSharedEvolutionKey !== !original.hasEvolutionToken;
+};
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
 async function api(path, { method = 'GET', payload, etag } = {}) {
@@ -33,17 +39,56 @@ function fill(fields) {
   $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
   $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
   $('image-settings').hidden = fields.messageFormat !== 'image';
+  $('evolutionToken').value = '';
+  $('useSharedEvolutionKey').checked = !fields.hasEvolutionToken;
+  syncEvolutionTokenControl();
   for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', 'imageId']) $(key).value = fields[key] ?? '';
-  [0, 1, 2].forEach(n => { $(`label-${n}`).value = fields.agents[n]?.label ?? ''; $(`phone-${n}`).value = fields.agents[n]?.phoneE164 ?? ''; });
+  renderAgents(fields.agents);
+}
+function syncEvolutionTokenControl() {
+  const useSharedKey = $('useSharedEvolutionKey').checked;
+  $('evolutionToken').disabled = useSharedKey;
+  $('evolutionToken').placeholder = original?.hasEvolutionToken ? 'Token salvo; informe outro para substituir' : 'Opcional; vazio usa a chave global';
+}
+function renderAgents(agents) {
+  const container = $('agents');
+  container.replaceChildren();
+  agents.forEach((agent, n) => {
+    const block = document.createElement('div'); block.className = 'agent';
+    const grid = document.createElement('div'); grid.className = 'agent-grid';
+    const nameField = document.createElement('div');
+    const nameLabel = document.createElement('label'); nameLabel.htmlFor = `label-${n}`; nameLabel.textContent = `Representante ${n + 1} · nome / botão`;
+    const name = document.createElement('input'); name.id = `label-${n}`; name.maxLength = 80; name.required = true; name.dataset.agentLabel = '';
+    name.setAttribute('aria-describedby', `error-label-${n}`); name.value = agent.label ?? '';
+    const nameError = document.createElement('small'); nameError.id = `error-label-${n}`; nameError.className = 'field-error';
+    nameField.append(nameLabel, name, nameError);
+    const phoneField = document.createElement('div');
+    const phoneLabel = document.createElement('label'); phoneLabel.htmlFor = `phone-${n}`; phoneLabel.textContent = 'WhatsApp com DDI e DDD';
+    const phone = document.createElement('input'); phone.id = `phone-${n}`; phone.inputMode = 'tel'; phone.maxLength = 15; phone.placeholder = '55 + DDD + número'; phone.required = true; phone.dataset.agentPhone = '';
+    phone.setAttribute('aria-describedby', `error-phone-${n}`); phone.value = agent.phoneE164 ?? '';
+    const phoneError = document.createElement('small'); phoneError.id = `error-phone-${n}`; phoneError.className = 'field-error';
+    phoneField.append(phoneLabel, phone, phoneError); grid.append(nameField, phoneField); block.append(grid);
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'secondary remove-agent'; remove.textContent = 'Remover representante';
+    remove.disabled = agents.length <= 1; remove.addEventListener('click', () => { renderAgents(draft().agents.filter((_, index) => index !== n)); $('editor').dispatchEvent(new Event('input', { bubbles: true })); });
+    block.append(remove); container.append(block);
+  });
+  $('agent-count').textContent = `${agents.length} ${agents.length === 1 ? 'contato' : 'contatos'}`;
+  $('add-agent').disabled = agents.length >= 10;
 }
 function validate() {
   const errors = validateDraft(draft());
-  for (const id of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', ...[0, 1, 2].flatMap(n => [`label-${n}`, `phone-${n}`])]) {
+  const current = draft();
+  if (!current.useSharedEvolutionKey && !current.evolutionToken.trim() && !original?.hasEvolutionToken) errors.evolutionToken = 'Informe o token da instância ou escolha usar a chave global.';
+  if (original?.hasEvolutionToken && current.instance !== original.instance && !current.useSharedEvolutionKey && !current.evolutionToken.trim()) errors.evolutionToken = 'Informe o token da nova instância ou escolha usar a chave global.';
+  $('error-agents').textContent = errors.agents ?? '';
+  $('agents').setAttribute('aria-invalid', String(Boolean(errors.agents)));
+  const fieldIds = ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', 'evolutionToken', ...current.agents.flatMap((_, n) => [`label-${n}`, `phone-${n}`])];
+  for (const id of fieldIds) {
     $(id).setAttribute('aria-invalid', String(Boolean(errors[id])));
     $(`error-${id}`).textContent = errors[id] ?? '';
   }
   const first = Object.keys(errors)[0];
-  if (first) { $(first).focus(); status('Confira os campos destacados.', true); return false; }
+  if (first) { (first === 'agents' ? $('add-agent') : $(first)).focus(); status('Confira os campos destacados.', true); return false; }
   return true;
 }
 function renderPreview(data, fields) {
@@ -61,7 +106,7 @@ function renderPreview(data, fields) {
   if (data.format === 'vcard') {
     const greeting = document.createElement('div'); greeting.textContent = data.text;
     const contacts = document.createElement('div'); contacts.className = 'contact-group';
-    const heading = document.createElement('strong'); heading.textContent = '3 contatos'; contacts.append(heading);
+    const heading = document.createElement('strong'); heading.textContent = `${data.content.contact.length} contatos`; contacts.append(heading);
     for (const contact of data.content.contact) {
       const card = document.createElement('div'); card.className = 'contact-card';
       const name = document.createElement('strong'); name.textContent = contact.fullName;
@@ -123,6 +168,8 @@ async function load(instance) {
   $('release-contact').value = ''; $('release-status').textContent = '';
   $('company').value = instance;
   $('preview-company').textContent = $('company').selectedOptions[0].textContent;
+  $('company-status').textContent = original.enabled ? 'Ativa: o bot pode responder nesta distribuidora.' : 'Desativada: o bot não responderá nesta distribuidora.';
+  $('toggle-company').textContent = original.enabled ? 'Desativar distribuidora' : 'Ativar distribuidora';
   fill(original); $('comparison').hidden = true; latest = null;
   await preview();
 }
@@ -140,14 +187,9 @@ async function run(task) {
   busy = true;
   document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = true; });
   try { await task(); } catch (error) { status(error.message || errorMessage(503), true); }
-  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = false; }); }
+  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = false; }); syncEvolutionTokenControl(); $('add-agent').disabled = agentBlocks().length >= 10; document.querySelectorAll('.remove-agent').forEach(button => { button.disabled = agentBlocks().length <= 1; }); }
 }
-for (let n = 0; n < 3; n++) {
-  const block = document.createElement('div'); block.className = 'agent';
-  // Only fixed application markup is inserted as HTML; all configuration uses value/textContent.
-  block.innerHTML = `<div class="agent-grid"><div><label for="label-${n}">Representante ${n + 1} · nome / botão</label><input id="label-${n}" maxlength="80" required aria-describedby="error-label-${n}"><small id="error-label-${n}" class="field-error"></small></div><div><label for="phone-${n}">WhatsApp com DDI e DDD</label><input id="phone-${n}" inputmode="tel" maxlength="15" placeholder="55 + DDD + número" required aria-describedby="error-phone-${n}"><small id="error-phone-${n}" class="field-error"></small></div></div>`;
-  $('agents').append(block);
-}
+$('add-agent').addEventListener('click', () => { const agents = draft().agents; if (agents.length < 10) { agents.push({ label: '', phoneE164: '' }); renderAgents(agents); $('editor').dispatchEvent(new Event('input', { bubbles: true })); } });
 $('login-form').addEventListener('submit', event => { event.preventDefault(); void run(async () => {
   const result = await api('login', { method: 'POST', payload: { username: $('username').value, password: $('password').value } });
   csrf = result.data.csrf; $('password').value = ''; await list(); status('Acesso autorizado.');
@@ -156,7 +198,20 @@ $('company').addEventListener('change', () => { const next = $('company').value;
   if (dirty() && !confirm('Descartar as alterações pendentes e trocar de distribuidora?')) return;
   void run(async () => { await load(next); status('Configuração carregada.'); });
 });
+$('toggle-company').addEventListener('click', () => {
+  if (dirty()) { status('Salve ou descarte as alterações pendentes antes de mudar o status da distribuidora.', true); return; }
+  const enabled = !original.enabled;
+  const action = enabled ? 'ativar' : 'desativar';
+  if (!confirm(`Deseja ${action} ${$('company').selectedOptions[0].textContent}?`)) return;
+  void run(async () => {
+    const result = await api(`companies/${encodeURIComponent(selected)}/status`, { method: 'PUT', payload: { enabled }, etag: version });
+    version = result.etag;
+    await list(); await load(selected);
+    status(`Distribuidora ${enabled ? 'ativada' : 'desativada'}.`);
+  });
+});
 $('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
+$('useSharedEvolutionKey').addEventListener('change', () => { if ($('useSharedEvolutionKey').checked) $('evolutionToken').value = ''; syncEvolutionTokenControl(); $('editor').dispatchEvent(new Event('input', { bubbles: true })); });
 $('preview-button').addEventListener('click', () => void run(preview));
 $('upload-image').addEventListener('click', () => void run(async () => {
   const file = $('image-file').files[0];
@@ -185,14 +240,16 @@ $('editor').addEventListener('submit', event => { event.preventDefault(); if (!v
     const result = await api(`companies/${encodeURIComponent(selected)}`, { method: 'PUT', payload: fields, etag: version });
     const option = Array.from($("company").options).find(item => item.value === selected);
     option.value = fields.instance; selected = fields.instance; $("company").value = selected;
-    original = fields; version = result.etag; $('comparison').hidden = true; latest = null;
+    version = result.etag;
+    const refreshed = await api(`companies/${encodeURIComponent(selected)}`);
+    original = refreshed.data.fields; version = refreshed.etag; fill(original); $('comparison').hidden = true; latest = null;
     await preview(); status('Alterações salvas e aplicadas.');
   });
 });
 $('reload').addEventListener('click', () => void run(async () => {
   if (!dirty()) { await load(selected); status('Versão salva carregada.'); return; }
   latest = await api(`companies/${encodeURIComponent(selected)}`);
-  const result = await api(`companies/${encodeURIComponent(selected)}/preview`, { method: 'POST', payload: latest.data.fields });
+  const result = await api(`companies/${encodeURIComponent(selected)}/preview`, { method: 'POST', payload: { ...comparable(latest.data.fields), evolutionToken: '', useSharedEvolutionKey: !latest.data.fields.hasEvolutionToken } });
   $('saved-preview').textContent = result.data.text; $('comparison').hidden = false; $('comparison').open = true;
   status('Rascunho preservado. Compare a versão salva e escolha se deseja usá-la.');
 }));
