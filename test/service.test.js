@@ -231,7 +231,7 @@ test('lista envia menu e responde escolha durante cooldown, com persistência e 
 
 test('botões enviam três URLs e timeout não gera fallback ou reenvio', async () => {
   for (const uncertain of [false, true]) {
-    const company = { ...companies[0], messageFormat: 'buttons' };
+    const company = { ...companies[0], instance: 'Hba Distribuidora', messageFormat: 'buttons' };
     const state = createState(':memory:');
     const requests = [];
     const config = { active: { defaultCooldownHours: 24 }, company: () => company };
@@ -246,7 +246,7 @@ test('botões enviam três URLs e timeout não gera fallback ou reenvio', async 
       await worker.tick();
       await worker.tick();
       assert.equal(requests.length, 1);
-      assert.equal(requests[0].url, `http://evolution/message/sendButtons/${company.instance}`);
+      assert.equal(requests[0].url, `http://evolution/message/sendButtons/${encodeURIComponent(company.instance)}`);
       assert.equal(requests[0].body.number, '5511988887777');
       assert.equal(requests[0].body.description, company.welcomeText);
       assert.deepEqual(requests[0].body.buttons, company.agents.map(agent => ({ type: 'url', displayText: agent.label, url: `https://wa.me/${agent.phoneE164}?text=${encodeURIComponent(company.prefilledText)}` })));

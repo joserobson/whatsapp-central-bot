@@ -6,6 +6,7 @@ import { validImageId } from './images.js';
 
 const nonempty = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 const digits = value => typeof value === 'string' && /^\d{8,15}$/.test(value);
+const validInstanceName = value => /^[a-zA-Z0-9_-](?:[a-zA-Z0-9 _-]{0,98}[a-zA-Z0-9_-])?$/.test(value);
 const validImageUrl = value => {
   if (typeof value !== 'string' || value.length > 2000) return false;
   if (!value) return true;
@@ -16,7 +17,7 @@ export function validateConfig(raw) {
   if (!raw || raw.schemaVersion !== 1 || !Number.isInteger(raw.defaultCooldownHours) || raw.defaultCooldownHours < 1 || raw.defaultCooldownHours > 720 || !Array.isArray(raw.companies) || raw.companies.length === 0) throw new Error('estrutura de configuracao invalida');
   const instances = new Set();
   for (const company of raw.companies) {
-    if (!company || !nonempty(company.instance, 100) || !/^[a-zA-Z0-9_-]+$/.test(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
+    if (!company || !nonempty(company.instance, 100) || !validInstanceName(company.instance) || instances.has(company.instance)) throw new Error('instancia invalida ou repetida');
     instances.add(company.instance);
     if (company.imageId !== undefined && company.imageId !== '' && !validImageId(company.imageId)) throw new Error('imagem enviada invalida');
     if (company.imageUrl !== undefined && !validImageUrl(company.imageUrl)) throw new Error('URL de imagem invalida');

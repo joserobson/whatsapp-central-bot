@@ -11,7 +11,7 @@ export function validateDraft(draft) {
   }
   if (draft.messageFormat !== undefined && !['text', 'buttons', 'list', 'vcard', 'image'].includes(draft.messageFormat)) errors.messageFormat = 'Selecione um formato válido.';
   if (draft.evolutionToken !== undefined && (typeof draft.evolutionToken !== 'string' || draft.evolutionToken.length > 500 || (draft.evolutionToken && !draft.evolutionToken.trim()))) errors.evolutionToken = 'Informe um token válido com até 500 caracteres.';
-  if (draft.instance !== undefined && (typeof draft.instance !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 letras, números, hífen ou sublinhado.';
+  if (draft.instance !== undefined && (typeof draft.instance !== 'string' || draft.instance.length > 100 || !/^[a-zA-Z0-9_-](?:[a-zA-Z0-9 _-]{0,98}[a-zA-Z0-9_-])?$/.test(draft.instance))) errors.instance = 'Use o nome exato da instância, com até 100 caracteres. Espaços são aceitos entre palavras; não use espaço no início ou no fim.';
   if (draft.cooldownHours !== undefined && (!Number.isInteger(draft.cooldownHours) || draft.cooldownHours < 1 || draft.cooldownHours > 720)) errors.cooldownHours = 'Informe um número inteiro de 1 a 720 horas.';
   const agentCount = Array.isArray(draft.agents) ? draft.agents.length : 0;
   if (agentCount < 1 || agentCount > 10) errors.agents = 'Adicione de 1 a 10 representantes.';

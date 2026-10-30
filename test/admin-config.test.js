@@ -107,13 +107,13 @@ test('troca de instância persiste, rejeita duplicidade e preserva outras distri
     const store = createConfigStore(path, logger);
     await store.reload();
     const fields = { instance: 'nova-evolution', welcomeText: company.welcomeText, closingText: '', prefilledText: company.prefilledText, agents: company.agents };
-    for (const instance of ['beta', '', 'com espaço', '../invalid']) await assert.rejects(store.update('alfa', { ...fields, instance }, store.version), { statusCode: 422 });
-    await store.update('alfa', fields, store.version);
+    for (const instance of ['beta', '', ' com espaço', 'com espaço ', '../invalid']) await assert.rejects(store.update('alfa', { ...fields, instance }, store.version), { statusCode: 422 });
+    await store.update('alfa', { ...fields, instance: 'Hba Distribuidora' }, store.version);
     assert.equal(store.company('alfa'), undefined);
-    assert.equal(store.company('nova-evolution').displayName, company.displayName);
+    assert.equal(store.company('Hba Distribuidora').displayName, company.displayName);
     assert.equal(store.company('beta').instance, 'beta');
     const restarted = createConfigStore(path, logger);
     await restarted.reload();
-    assert.equal(restarted.company('nova-evolution').instance, 'nova-evolution');
+    assert.equal(restarted.company('Hba Distribuidora').instance, 'Hba Distribuidora');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

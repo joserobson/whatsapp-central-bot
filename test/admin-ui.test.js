@@ -5,6 +5,8 @@ import { validateDraft, hasChanges, errorMessage } from '../src/admin/public/mod
 test('formulário identifica campos inválidos, alterações pendentes e conflito', () => {
   const draft = { welcomeText: '<script>alert(1)</script>', closingText: '', prefilledText: 'Oi', agents: [1, 2, 3].map(n => ({ label: `Pessoa ${n}`, phoneE164: `551199999${n}000` })) };
   assert.deepEqual(validateDraft(draft), {});
+  assert.deepEqual(validateDraft({ ...draft, instance: 'Hba Distribuidora' }), {});
+  assert.ok(validateDraft({ ...draft, instance: ' Hba Distribuidora ' }).instance);
   assert.ok(validateDraft({ ...draft, agents: [] }).agents);
   assert.ok(validateDraft({ ...draft, agents: Array.from({ length: 11 }, (_, n) => ({ label: `Pessoa ${n}`, phoneE164: `551199999${n}000` })) }).agents);
   assert.ok(validateDraft({ ...draft, messageFormat: 'buttons', agents: Array.from({ length: 4 }, (_, n) => ({ label: `Pessoa ${n}`, phoneE164: `551199999${n}000` })) }).agents);
