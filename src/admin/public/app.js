@@ -13,12 +13,15 @@ let previewNumber = 0;
 const evolutionQrs = new Map();
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
 const agentBlocks = () => Array.from($('agents').children);
-const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: agentBlocks().map(block => ({ label: block.querySelector('[data-agent-label]').value, phoneE164: block.querySelector('[data-agent-phone]').value })), evolutionToken: $('useSharedEvolutionKey').checked ? '' : $('evolutionToken').value, useSharedEvolutionKey: $('useSharedEvolutionKey').checked });
+const draft = () => {
+  const instance = $('instance').value;
+  return { instance, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: agentBlocks().map(block => ({ label: block.querySelector('[data-agent-label]').value, phoneE164: block.querySelector('[data-agent-phone]').value })), evolutionToken: '', useSharedEvolutionKey: !original?.hasEvolutionToken || instance !== original.instance };
+};
 const comparable = fields => { const { enabled, hasEvolutionToken, evolutionToken, useSharedEvolutionKey, ...editable } = fields; return editable; };
 const dirty = () => {
   if (!original) return false;
   const current = draft();
-  return hasChanges(comparable(original), comparable(current)) || Boolean(current.evolutionToken.trim()) || current.useSharedEvolutionKey !== !original.hasEvolutionToken;
+  return hasChanges(comparable(original), comparable(current)) || current.useSharedEvolutionKey !== !original.hasEvolutionToken;
 };
 function showLogin() { $('login').hidden = false; $('workspace').hidden = true; $('logout').hidden = true; }
 function showWorkspace() { $('login').hidden = true; $('workspace').hidden = false; $('logout').hidden = false; }
@@ -44,16 +47,8 @@ function fill(fields) {
   $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
   $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
   $('image-settings').hidden = fields.messageFormat !== 'image';
-  $('evolutionToken').value = '';
-  $('useSharedEvolutionKey').checked = !fields.hasEvolutionToken;
-  syncEvolutionTokenControl();
   for (const key of ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', 'imageId']) $(key).value = fields[key] ?? '';
   renderAgents(fields.agents);
-}
-function syncEvolutionTokenControl() {
-  const useSharedKey = $('useSharedEvolutionKey').checked;
-  $('evolutionToken').disabled = useSharedKey;
-  $('evolutionToken').placeholder = original?.hasEvolutionToken ? 'Token salvo; informe outro para substituir' : 'Opcional; vazio usa a chave global';
 }
 function renderAgents(agents) {
   const container = $('agents');
@@ -83,11 +78,9 @@ function renderAgents(agents) {
 function validate() {
   const errors = validateDraft(draft());
   const current = draft();
-  if (!current.useSharedEvolutionKey && !current.evolutionToken.trim() && !original?.hasEvolutionToken) errors.evolutionToken = 'Informe o token da instância ou escolha usar a chave global.';
-  if (original?.hasEvolutionToken && current.instance !== original.instance && !current.useSharedEvolutionKey && !current.evolutionToken.trim()) errors.evolutionToken = 'Informe o token da nova instância ou escolha usar a chave global.';
   $('error-agents').textContent = errors.agents ?? '';
   $('agents').setAttribute('aria-invalid', String(Boolean(errors.agents)));
-  const fieldIds = ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', 'evolutionToken', ...current.agents.flatMap((_, n) => [`label-${n}`, `phone-${n}`])];
+  const fieldIds = ['instance', 'messageFormat', 'welcomeText', 'closingText', 'prefilledText', 'cooldownHours', 'imageUrl', ...current.agents.flatMap((_, n) => [`label-${n}`, `phone-${n}`])];
   for (const id of fieldIds) {
     $(id).setAttribute('aria-invalid', String(Boolean(errors[id])));
     $(`error-${id}`).textContent = errors[id] ?? '';
@@ -286,7 +279,7 @@ async function run(task) {
   busy = true;
   document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact, #evolution-view input').forEach(element => { element.disabled = true; });
   try { await task(); } catch (error) { status(error.message || errorMessage(503), true); }
-  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact, #evolution-view input').forEach(element => { element.disabled = false; }); syncEvolutionTokenControl(); $('add-agent').disabled = agentBlocks().length >= 10; document.querySelectorAll('.remove-agent').forEach(button => { button.disabled = agentBlocks().length <= 1; }); }
+  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact, #evolution-view input').forEach(element => { element.disabled = false; }); $('add-agent').disabled = agentBlocks().length >= 10; document.querySelectorAll('.remove-agent').forEach(button => { button.disabled = agentBlocks().length <= 1; }); }
 }
 $('add-agent').addEventListener('click', () => { const agents = draft().agents; if (agents.length < 10) { agents.push({ label: '', phoneE164: '' }); renderAgents(agents); $('editor').dispatchEvent(new Event('input', { bubbles: true })); } });
 $('login-form').addEventListener('submit', event => { event.preventDefault(); void run(async () => {
@@ -310,7 +303,6 @@ $('toggle-company').addEventListener('click', () => {
   });
 });
 $('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
-$('useSharedEvolutionKey').addEventListener('change', () => { if ($('useSharedEvolutionKey').checked) $('evolutionToken').value = ''; syncEvolutionTokenControl(); $('editor').dispatchEvent(new Event('input', { bubbles: true })); });
 $('preview-button').addEventListener('click', () => void run(preview));
 $('service-tab').addEventListener('click', () => showTab('service'));
 $('evolution-tab').addEventListener('click', () => { showTab('evolution'); void run(loadEvolutionInstances); });
