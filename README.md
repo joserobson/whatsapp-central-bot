@@ -117,6 +117,8 @@ A instância da Evolution também pode ser alterada no editor de cada distribuid
 
 O campo **Token da instância Evolution** permite configurar uma chave própria para cada distribuidora. O painel nunca mostra o token salvo: deixe o campo vazio para mantê-lo, informe outro valor para substituí-lo ou marque **Usar a chave global** para removê-lo e voltar a usar `EVOLUTION_API_KEY`. Se a instância for alterada enquanto há um token próprio salvo, informe o token correspondente à nova instância ou escolha explicitamente a chave global. O token é gravado somente no JSON privado da configuração, usando a gravação atômica já existente, e não é retornado pela API do painel nem incluído nos logs.
 
+A área **Conexão da Evolution** consulta o estado da instância configurada e pode solicitar um QR Code para conectar o WhatsApp. As chamadas passam pelo servidor e usam o token da distribuidora ou a chave global; o QR Code é exibido somente na sessão administrativa. O painel não cria nem exclui instâncias, nem configura seus webhooks. Confirme que a versão instalada da Evolution oferece `GET /instance/connectionState/{instance}` e `GET /instance/connect/{instance}`.
+
 ## Formatos de mensagem
 
 No painel, cada distribuidora pode escolher **Texto com links** (padrão) ou

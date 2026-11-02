@@ -28,8 +28,9 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
     if (response.status === 401) showLogin();
     const detail = await response.json().catch(() => ({}));
     const imageErrors = { image_type_not_supported: 'Selecione uma imagem JPEG ou PNG.', invalid_image: 'Arquivo inválido, corrompido ou com mais de 40 milhões de pixels. Use um JPEG ou PNG válido.', image_too_large: 'A imagem deve ter até 5 MB.', uploaded_image_not_found: 'Imagem enviada não encontrada. Envie o arquivo novamente.' };
+    const evolutionErrors = { evolution_unavailable: 'Não foi possível alcançar a Evolution. Verifique a conexão do servidor.', evolution_service_unavailable: 'A Evolution está indisponível. Verifique se o serviço está ativo e licenciado.', evolution_request_failed: 'A Evolution recusou a operação. Confira a instância e a credencial configurada.' };
     const message = path === 'login' && response.status === 401 ? 'Usuário ou senha inválidos.' : errorMessage(response.status);
-    throw Object.assign(new Error(imageErrors[detail.error] ?? message), { status: response.status });
+    throw Object.assign(new Error(imageErrors[detail.error] ?? evolutionErrors[detail.error] ?? message), { status: response.status });
   }
   return { data: response.status === 204 ? null : await response.json(), etag: response.headers.get('etag') };
 }
@@ -171,7 +172,18 @@ async function load(instance) {
   $('company-status').textContent = original.enabled ? 'Ativa: o bot pode responder nesta distribuidora.' : 'Desativada: o bot não responderá nesta distribuidora.';
   $('toggle-company').textContent = original.enabled ? 'Desativar distribuidora' : 'Ativar distribuidora';
   fill(original); $('comparison').hidden = true; latest = null;
+  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
+  await refreshEvolutionState();
   await preview();
+}
+const evolutionStateLabel = state => ({ open: 'Conectada', connecting: 'Conectando', close: 'Desconectada', refused: 'Conexão recusada', unknown: 'Estado desconhecido' })[state] ?? `Estado: ${state}`;
+async function refreshEvolutionState() {
+  $('evolution-status').textContent = 'Consultando estado…';
+  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
+  try {
+    const result = await api(`companies/${encodeURIComponent(selected)}/evolution/status`);
+    $('evolution-status').textContent = evolutionStateLabel(result.data.state);
+  } catch (error) { $('evolution-status').textContent = error.message; }
 }
 async function list() {
   const result = await api('companies');
@@ -213,6 +225,19 @@ $('toggle-company').addEventListener('click', () => {
 $('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('useSharedEvolutionKey').addEventListener('change', () => { if ($('useSharedEvolutionKey').checked) $('evolutionToken').value = ''; syncEvolutionTokenControl(); $('editor').dispatchEvent(new Event('input', { bubbles: true })); });
 $('preview-button').addEventListener('click', () => void run(preview));
+$('refresh-evolution').addEventListener('click', () => void run(refreshEvolutionState));
+$('connect-evolution').addEventListener('click', () => void run(async () => {
+  $('evolution-status').textContent = 'Solicitando conexão…';
+  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
+  const result = await api(`companies/${encodeURIComponent(selected)}/evolution/connect`, { method: 'POST' });
+  $('evolution-status').textContent = evolutionStateLabel(result.data.state);
+  if (result.data.qrCode) {
+    $('evolution-qr').src = result.data.qrCode;
+    $('evolution-qr').hidden = false; $('evolution-qr-help').hidden = false;
+    status('QR Code gerado. Escaneie com o WhatsApp para conectar.');
+  } else if (result.data.state === 'open') status('Esta instância já está conectada.');
+  else status('A Evolution não retornou um QR Code. Atualize o estado e tente novamente se necessário.', true);
+}));
 $('upload-image').addEventListener('click', () => void run(async () => {
   const file = $('image-file').files[0];
   if (!file || !['image/jpeg', 'image/png'].includes(file.type)) throw new Error('Selecione uma imagem JPEG ou PNG.');

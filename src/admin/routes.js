@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { equal, token, validHash, verifyPassword } from './auth.js';
 import { configError, editedCompany } from '../config.js';
 import { buildReply, buildDelivery } from '../message.js';
+import { evolutionQrResponse, evolutionStateResponse } from '../evolution.js';
 
 export function registerAdmin(app, config, options) {
-  const { username, passwordHash, origin, state, imageStore, now = Date.now, secure = true } = options;
+  const { username, passwordHash, origin, state, imageStore, evolution, evolutionApiKey, now = Date.now, secure = true } = options;
   if (!username || username.length > 100 || !validHash(passwordHash) || !origin) throw new Error('Configuracao administrativa invalida');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['http:', 'https:'].includes(parsedOrigin.protocol) || (secure && parsedOrigin.protocol !== 'https:')) throw new Error('ADMIN_ORIGIN invalida');
@@ -78,6 +79,24 @@ export function registerAdmin(app, config, options) {
       if (!company) throw configError(404, 'company_not_found');
       return company;
     };
+    const evolutionKey = company => company.evolutionToken || evolutionApiKey;
+    const evolutionCall = async (instance, operation) => {
+      const company = getCompany(instance);
+      if (!evolution || !evolutionKey(company)) throw configError(503, 'evolution_unavailable');
+      try { return await operation(company, evolutionKey(company)); }
+      catch (error) {
+        if (error.statusCode) throw error;
+        throw configError(503, 'evolution_unavailable');
+      }
+    };
+    admin.get('/api/companies/:instance/evolution/status', async request => evolutionCall(request.params.instance, async (company, key) => {
+      const result = await evolution.connectionState(company.instance, key);
+      return evolutionStateResponse(result);
+    }));
+    admin.post('/api/companies/:instance/evolution/connect', async request => evolutionCall(request.params.instance, async (company, key) => {
+      const result = await evolution.connect(company.instance, key);
+      return evolutionQrResponse(result);
+    }));
     admin.get('/api/companies/:instance', async (request, reply) => {
       const company = getCompany(request.params.instance);
       const { welcomeText, closingText, prefilledText, agents } = company;

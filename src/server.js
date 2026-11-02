@@ -5,6 +5,7 @@ import { createState } from './state.js';
 import { createWorker } from './worker.js';
 import { createApp } from './app.js';
 import { createImageStore } from './images.js';
+import { createEvolutionClient } from './evolution.js';
 
 const required = ['EVOLUTION_BASE_URL', 'EVOLUTION_API_KEY', 'WEBHOOK_SHARED_SECRET', 'CONFIG_PATH', 'SQLITE_PATH'];
 for (const key of required) if (!process.env[key]) throw new Error(`variavel obrigatoria ausente: ${key}`);
@@ -22,10 +23,13 @@ await config.reload();
 const state = createState(process.env.SQLITE_PATH);
 const imageStore = createImageStore(join(dirname(process.env.CONFIG_WRITABLE_PATH || process.env.CONFIG_PATH), 'images'));
 const worker = createWorker({ state, config, imageStore, baseUrl: process.env.EVOLUTION_BASE_URL, apiKey: process.env.EVOLUTION_API_KEY, logger });
+const evolution = createEvolutionClient({ baseUrl: process.env.EVOLUTION_BASE_URL });
 const adminEnabled = process.env.ADMIN_ENABLED === 'true';
 if (adminEnabled && !process.env.CONFIG_WRITABLE_PATH) throw new Error('CONFIG_WRITABLE_PATH obrigatorio para o painel');
 const admin = {
   imageStore,
+  evolution,
+  evolutionApiKey: process.env.EVOLUTION_API_KEY,
   enabled: adminEnabled,
   username: process.env.ADMIN_USERNAME,
   passwordHash: process.env.ADMIN_PASSWORD_HASH_B64 ? Buffer.from(process.env.ADMIN_PASSWORD_HASH_B64, 'base64').toString('utf8') : process.env.ADMIN_PASSWORD_HASH,
