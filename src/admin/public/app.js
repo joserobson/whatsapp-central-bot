@@ -8,6 +8,7 @@ let selected;
 let busy = false;
 let latest;
 let previewNumber = 0;
+const evolutionQrs = new Map();
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
 const agentBlocks = () => Array.from($('agents').children);
 const draft = () => ({ instance: $('instance').value, messageFormat: $('messageFormat').value, imageUrl: $('imageUrl').value, imageId: $('imageId').value, includePrefilledText: $('includePrefilledText').checked, cooldownHours: Number($('cooldownHours').value), welcomeText: $('welcomeText').value, closingText: $('closingText').value, prefilledText: $('prefilledText').value, agents: agentBlocks().map(block => ({ label: block.querySelector('[data-agent-label]').value, phoneE164: block.querySelector('[data-agent-phone]').value })), evolutionToken: $('useSharedEvolutionKey').checked ? '' : $('evolutionToken').value, useSharedEvolutionKey: $('useSharedEvolutionKey').checked });
@@ -172,18 +173,7 @@ async function load(instance) {
   $('company-status').textContent = original.enabled ? 'Ativa: o bot pode responder nesta distribuidora.' : 'Desativada: o bot não responderá nesta distribuidora.';
   $('toggle-company').textContent = original.enabled ? 'Desativar distribuidora' : 'Ativar distribuidora';
   fill(original); $('comparison').hidden = true; latest = null;
-  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
-  await refreshEvolutionState();
   await preview();
-}
-const evolutionStateLabel = state => ({ open: 'Conectada', connecting: 'Conectando', close: 'Desconectada', refused: 'Conexão recusada', unknown: 'Estado desconhecido' })[state] ?? `Estado: ${state}`;
-async function refreshEvolutionState() {
-  $('evolution-status').textContent = 'Consultando estado…';
-  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
-  try {
-    const result = await api(`companies/${encodeURIComponent(selected)}/evolution/status`);
-    $('evolution-status').textContent = evolutionStateLabel(result.data.state);
-  } catch (error) { $('evolution-status').textContent = error.message; }
 }
 async function list() {
   const result = await api('companies');
@@ -194,12 +184,90 @@ async function list() {
   if (selected && original) { $('company').value = selected; showWorkspace(); return; }
   await load(result.data.companies[0].instance); showWorkspace();
 }
+function showTab(tab) {
+  const service = tab === 'service';
+  $('service-view').hidden = !service; $('evolution-view').hidden = service;
+  $('service-tab').classList.toggle('active', service); $('evolution-tab').classList.toggle('active', !service);
+  $('service-tab').setAttribute('aria-selected', String(service)); $('evolution-tab').setAttribute('aria-selected', String(!service));
+}
+const evolutionStateLabel = value => ({ open: 'Conectada', connecting: 'Conectando', close: 'Desconectada', refused: 'Conexão recusada', unknown: 'Estado desconhecido' })[value] ?? `Estado: ${value}`;
+async function loadEvolutionInstances() {
+  $('evolution-page-status').textContent = 'Carregando instâncias…';
+  const result = await api('evolution/instances');
+  renderEvolutionInstances(result.data.instances);
+  $('evolution-page-status').textContent = `${result.data.instances.length} ${result.data.instances.length === 1 ? 'instância encontrada' : 'instâncias encontradas'}.`;
+}
+function renderEvolutionInstances(instances) {
+  const container = $('evolution-instances'); container.replaceChildren();
+  if (!instances.length) { const empty = document.createElement('p'); empty.textContent = 'A Evolution não retornou instâncias.'; container.append(empty); return; }
+  const value = (parent, label, content) => {
+    const cell = document.createElement('div'); const term = document.createElement('dt'); const description = document.createElement('dd');
+    term.textContent = label; description.textContent = content || '—'; cell.append(term, description); parent.append(cell);
+  };
+  const action = (parent, label, className, handler) => {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+    button.className = className; button.addEventListener('click', handler); parent.append(button); return button;
+  };
+  for (const instance of instances) {
+    const card = document.createElement('article'); card.className = 'card evolution-card';
+    const heading = document.createElement('div'); heading.className = 'evolution-card-heading';
+    const name = document.createElement('h3'); name.textContent = instance.name;
+    const badge = document.createElement('span'); badge.className = `state-badge state-${instance.state}`; badge.textContent = evolutionStateLabel(instance.state);
+    heading.append(name, badge); card.append(heading);
+    const data = document.createElement('dl'); data.className = 'instance-data';
+    value(data, 'Integração', instance.integration); value(data, 'Número', instance.number); value(data, 'Perfil do WhatsApp', instance.profileName);
+    value(data, 'Criada em', instance.createdAt ? new Date(instance.createdAt).toLocaleString() : '');
+    value(data, 'Atualizada em', instance.updatedAt ? new Date(instance.updatedAt).toLocaleString() : '');
+    value(data, 'Motivo da desconexão', instance.disconnectionReason);
+    card.append(data);
+    const tokenDetails = document.createElement('details'); tokenDetails.className = 'instance-token';
+    const tokenSummary = document.createElement('summary'); tokenSummary.textContent = 'Token da instância';
+    const tokenControl = document.createElement('div'); tokenControl.className = 'token-control';
+    const tokenInput = document.createElement('input'); tokenInput.type = 'password'; tokenInput.value = instance.token; tokenInput.readOnly = true; tokenInput.autocomplete = 'off'; tokenInput.setAttribute('aria-label', `Token da instância ${instance.name}`);
+    const reveal = action(tokenControl, 'Mostrar', 'secondary', () => { const visible = tokenInput.type === 'text'; tokenInput.type = visible ? 'password' : 'text'; reveal.textContent = visible ? 'Mostrar' : 'Ocultar'; });
+    action(tokenControl, 'Copiar token', 'secondary', async () => { try { await navigator.clipboard.writeText(instance.token); $('evolution-page-status').textContent = `Token de ${instance.name} copiado.`; } catch { $('evolution-page-status').textContent = 'Não foi possível copiar o token neste navegador.'; } });
+    tokenControl.prepend(tokenInput); tokenDetails.append(tokenSummary, tokenControl); card.append(tokenDetails);
+    const actions = document.createElement('div'); actions.className = 'actions instance-actions';
+    action(actions, 'Conectar / gerar QR', 'secondary', () => void run(() => operateEvolution(instance, 'connect')));
+    action(actions, 'Reiniciar', 'secondary', () => void run(() => operateEvolution(instance, 'restart')));
+    action(actions, 'Desconectar', 'secondary', () => void run(() => operateEvolution(instance, 'logout')));
+    action(actions, 'Excluir', 'secondary danger', () => void run(() => operateEvolution(instance, 'delete')));
+    card.append(actions);
+    const qr = document.createElement('img'); qr.className = 'instance-qr'; qr.alt = `QR Code para conectar ${instance.name}`; qr.hidden = true;
+    const qrHelp = document.createElement('p'); qrHelp.className = 'muted'; qrHelp.textContent = 'Escaneie no WhatsApp. O QR Code expira; gere outro se necessário.'; qrHelp.hidden = true;
+    const cardStatus = document.createElement('p'); cardStatus.className = 'instance-card-status'; cardStatus.setAttribute('role', 'status');
+    if (evolutionQrs.has(instance.name)) { qr.src = evolutionQrs.get(instance.name); qr.hidden = false; qrHelp.hidden = false; }
+    card.append(qr, qrHelp, cardStatus); container.append(card);
+  }
+}
+async function operateEvolution(instance, operation) {
+  if (operation === 'restart' && !confirm(`Reiniciar a instância ${instance.name}?`)) return;
+  if (operation === 'logout' && !confirm(`Desconectar ${instance.name} do WhatsApp? Será necessário gerar novo QR Code para reconectar.`)) return;
+  if (operation === 'delete') {
+    if (!confirm(`Excluir ${instance.name} na Evolution? Isso desconecta o WhatsApp e remove a instância.`)) return;
+    if (prompt(`Digite exatamente ${instance.name} para confirmar a exclusão:`) !== instance.name) { $('evolution-page-status').textContent = 'Exclusão cancelada.'; return; }
+  }
+  const path = `evolution/instances/${encodeURIComponent(instance.name)}`;
+  if (operation === 'connect') {
+    const result = await api(`${path}/connect`, { method: 'POST' });
+    if (result.data.qrCode) evolutionQrs.set(instance.name, result.data.qrCode);
+    else evolutionQrs.delete(instance.name);
+    await loadEvolutionInstances();
+    $('evolution-page-status').textContent = result.data.qrCode ? `QR Code gerado para ${instance.name}.` : `${instance.name}: ${evolutionStateLabel(result.data.state)}.`;
+    return;
+  }
+  if (operation === 'restart') await api(`${path}/restart`, { method: 'POST' });
+  if (operation === 'logout') await api(`${path}/logout`, { method: 'POST' });
+  if (operation === 'delete') { await api(path, { method: 'DELETE' }); evolutionQrs.delete(instance.name); }
+  await loadEvolutionInstances();
+  $('evolution-page-status').textContent = operation === 'delete' ? `${instance.name} excluída.` : operation === 'logout' ? `${instance.name} desconectada.` : `${instance.name} reiniciada.`;
+}
 async function run(task) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = true; });
+  document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact, #evolution-view input').forEach(element => { element.disabled = true; });
   try { await task(); } catch (error) { status(error.message || errorMessage(503), true); }
-  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact').forEach(element => { element.disabled = false; }); syncEvolutionTokenControl(); $('add-agent').disabled = agentBlocks().length >= 10; document.querySelectorAll('.remove-agent').forEach(button => { button.disabled = agentBlocks().length <= 1; }); }
+  finally { busy = false; document.querySelectorAll('button, select, #editor input, #editor textarea, #release-contact, #evolution-view input').forEach(element => { element.disabled = false; }); syncEvolutionTokenControl(); $('add-agent').disabled = agentBlocks().length >= 10; document.querySelectorAll('.remove-agent').forEach(button => { button.disabled = agentBlocks().length <= 1; }); }
 }
 $('add-agent').addEventListener('click', () => { const agents = draft().agents; if (agents.length < 10) { agents.push({ label: '', phoneE164: '' }); renderAgents(agents); $('editor').dispatchEvent(new Event('input', { bubbles: true })); } });
 $('login-form').addEventListener('submit', event => { event.preventDefault(); void run(async () => {
@@ -225,19 +293,19 @@ $('toggle-company').addEventListener('click', () => {
 $('editor').addEventListener('input', () => { $('image-settings').hidden = $('messageFormat').value !== 'image'; $('prefilled-settings').hidden = $('messageFormat').value === 'vcard'; $('prefilledText').required = $('includePrefilledText').checked && $('messageFormat').value !== 'vcard'; $('preview-state').textContent = 'Prévia desatualizada'; status(dirty() ? 'Há alterações não salvas.' : ''); });
 $('useSharedEvolutionKey').addEventListener('change', () => { if ($('useSharedEvolutionKey').checked) $('evolutionToken').value = ''; syncEvolutionTokenControl(); $('editor').dispatchEvent(new Event('input', { bubbles: true })); });
 $('preview-button').addEventListener('click', () => void run(preview));
-$('refresh-evolution').addEventListener('click', () => void run(refreshEvolutionState));
-$('connect-evolution').addEventListener('click', () => void run(async () => {
-  $('evolution-status').textContent = 'Solicitando conexão…';
-  $('evolution-qr').hidden = true; $('evolution-qr-help').hidden = true;
-  const result = await api(`companies/${encodeURIComponent(selected)}/evolution/connect`, { method: 'POST' });
-  $('evolution-status').textContent = evolutionStateLabel(result.data.state);
-  if (result.data.qrCode) {
-    $('evolution-qr').src = result.data.qrCode;
-    $('evolution-qr').hidden = false; $('evolution-qr-help').hidden = false;
-    status('QR Code gerado. Escaneie com o WhatsApp para conectar.');
-  } else if (result.data.state === 'open') status('Esta instância já está conectada.');
-  else status('A Evolution não retornou um QR Code. Atualize o estado e tente novamente se necessário.', true);
-}));
+$('service-tab').addEventListener('click', () => showTab('service'));
+$('evolution-tab').addEventListener('click', () => { showTab('evolution'); void run(loadEvolutionInstances); });
+$('refresh-evolution').addEventListener('click', () => void run(loadEvolutionInstances));
+$('toggle-new-token').addEventListener('click', () => { const input = $('new-instance-token'); const visible = input.type === 'text'; input.type = visible ? 'password' : 'text'; $('toggle-new-token').textContent = visible ? 'Mostrar' : 'Ocultar'; });
+$('create-instance-form').addEventListener('submit', event => { event.preventDefault();
+  const payload = { name: $('new-instance-name').value, integration: 'WHATSAPP-BAILEYS', number: $('new-instance-number').value, token: $('new-instance-token').value };
+  void run(async () => {
+    const result = await api('evolution/instances', { method: 'POST', payload });
+    if (result.data.qrCode) evolutionQrs.set(result.data.name, result.data.qrCode);
+    $('create-instance-form').reset(); $('new-instance-token').type = 'password'; $('toggle-new-token').textContent = 'Mostrar';
+    await loadEvolutionInstances(); status('Instância criada na Evolution.');
+  });
+});
 $('upload-image').addEventListener('click', () => void run(async () => {
   const file = $('image-file').files[0];
   if (!file || !['image/jpeg', 'image/png'].includes(file.type)) throw new Error('Selecione uma imagem JPEG ou PNG.');

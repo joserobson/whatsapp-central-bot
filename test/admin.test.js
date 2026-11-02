@@ -162,6 +162,52 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
   } finally { await app.close(); state.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
+test('aba Evolution protege operações e retorna campos permitidos para instâncias', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'panel-evolution-'));
+  const path = join(dir, 'config.json');
+  const company = { instance: 'alfa', displayName: 'Alfa', enabled: true, welcomeText: 'Olá', closingText: '', prefilledText: 'Oi', agents: [{ label: 'Atendente', phoneE164: '5511988887777' }] };
+  await writeFile(path, JSON.stringify({ schemaVersion: 1, defaultCooldownHours: 24, companies: [company] }));
+  const config = createConfigStore(path, { info() {}, error() {} });
+  await config.reload();
+  const state = createState(join(dir, 'state.sqlite'));
+  const calls = [];
+  const evolution = {
+    instances: async key => { calls.push(['instances', key]); return [{ id: 'id-1', name: 'Teste', connectionStatus: 'open', integration: 'WHATSAPP-BAILEYS', token: 'instance-token', secretField: 'private-field' }]; },
+    createInstance: async (body, key) => { calls.push(['create', key, body]); return { instance: { instanceName: body.instanceName }, qrcode: { base64: 'aGVsbG8=' } }; },
+    connect: async (name, key) => { calls.push(['connect', key, name]); return { base64: 'aGVsbG8=' }; },
+    restart: async (name, key) => { calls.push(['restart', key, name]); },
+    logout: async (name, key) => { calls.push(['logout', key, name]); },
+    deleteInstance: async (name, key) => { calls.push(['delete', key, name]); }
+  };
+  const origin = 'https://panel.example';
+  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin, evolution, evolutionApiKey: 'global-secret' } });
+  try {
+    assert.equal((await app.inject('/admin/api/evolution/instances')).statusCode, 401);
+    const login = await app.inject({ method: 'POST', url: '/admin/api/login', headers: { origin }, payload: { username: 'admin', password: 'a-long-test-password' } });
+    const headers = { cookie: login.headers['set-cookie'].split(';')[0], origin, 'x-csrf-token': login.json().csrf };
+    const denied = await app.inject({ method: 'POST', url: '/admin/api/evolution/instances', headers: { cookie: headers.cookie, origin }, payload: { name: 'Teste', integration: 'WHATSAPP-BAILEYS' } });
+    assert.equal(denied.statusCode, 403);
+    const list = await app.inject({ url: '/admin/api/evolution/instances', headers });
+    assert.equal(list.statusCode, 200);
+    assert.equal(list.headers['cache-control'], 'no-store');
+    assert.equal(list.json().instances[0].token, 'instance-token');
+    assert.equal(JSON.stringify(list.json()).includes('secretField'), false);
+    const created = await app.inject({ method: 'POST', url: '/admin/api/evolution/instances', headers, payload: { name: 'Nova', integration: 'WHATSAPP-BAILEYS' } });
+    assert.equal(created.statusCode, 200);
+    assert.equal(created.json().qrCode, 'data:image/png;base64,aGVsbG8=');
+    for (const action of ['connect', 'restart', 'logout']) {
+      const result = await app.inject({ method: 'POST', url: `/admin/api/evolution/instances/Teste/${action}`, headers, payload: {} });
+      assert.equal(result.statusCode, 200);
+    }
+    const deleted = await app.inject({ method: 'DELETE', url: '/admin/api/evolution/instances/Teste', headers, payload: {} });
+    assert.equal(deleted.statusCode, 200);
+    assert.deepEqual(calls.map(call => call.slice(0, 2)), [
+      ['instances', 'global-secret'], ['create', 'global-secret'], ['connect', 'global-secret'], ['restart', 'global-secret'], ['logout', 'global-secret'], ['delete', 'global-secret']
+    ]);
+    assert.deepEqual(calls[1][2], { instanceName: 'Nova', integration: 'WHATSAPP-BAILEYS', qrcode: true });
+  } finally { await app.close(); state.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
 test('painel desabilitado não registra rotas; credenciais inválidas impedem habilitação', () => {
   const options = { config: {}, state: {}, worker: {} };
   const app = createApp(options);

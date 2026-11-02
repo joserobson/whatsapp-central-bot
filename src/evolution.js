@@ -1,12 +1,14 @@
 const safeInstancePath = instance => encodeURIComponent(instance);
 
 export function createEvolutionClient({ baseUrl, fetchImpl = fetch, timeoutMs = 8000 }) {
-  const request = async (path, key) => {
+  const request = async (path, key, { method = 'GET', body, timeoutMs: requestTimeout = timeoutMs } = {}) => {
     let response;
     try {
       response = await fetchImpl(`${baseUrl.replace(/\/$/, '')}${path}`, {
-        headers: { apikey: key, accept: 'application/json' },
-        signal: AbortSignal.timeout(timeoutMs)
+        method,
+        headers: { apikey: key, accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(requestTimeout)
       });
     } catch {
       throw Object.assign(new Error('evolution_unavailable'), { statusCode: 503 });
@@ -19,13 +21,19 @@ export function createEvolutionClient({ baseUrl, fetchImpl = fetch, timeoutMs = 
     return data;
   };
   return {
+    instances: key => request('/instance/fetchInstances', key),
+    createInstance: (data, key) => request('/instance/create', key, { method: 'POST', body: data, timeoutMs: 30_000 }),
     connectionState: (instance, key) => request(`/instance/connectionState/${safeInstancePath(instance)}`, key),
-    connect: (instance, key) => request(`/instance/connect/${safeInstancePath(instance)}`, key)
+    connect: (instance, key) => request(`/instance/connect/${safeInstancePath(instance)}`, key, { timeoutMs: 30_000 }),
+    restart: (instance, key) => request(`/instance/restart/${safeInstancePath(instance)}`, key, { method: 'POST', timeoutMs: 30_000 }),
+    logout: (instance, key) => request(`/instance/logout/${safeInstancePath(instance)}`, key, { method: 'DELETE', timeoutMs: 30_000 }),
+    deleteInstance: (instance, key) => request(`/instance/delete/${safeInstancePath(instance)}`, key, { method: 'DELETE', timeoutMs: 30_000 })
   };
 }
 
 export function evolutionStateResponse(data) {
-  const state = typeof data?.instance?.state === 'string' ? data.instance.state : typeof data?.state === 'string' ? data.state : 'unknown';
+  const rawState = data?.instance?.state ?? data?.state ?? data?.connectionStatus ?? data?.status;
+  const state = typeof rawState === 'string' ? rawState : 'unknown';
   return { state: state.slice(0, 40) };
 }
 
@@ -34,4 +42,36 @@ export function evolutionQrResponse(data) {
   const value = candidates.find(item => typeof item === 'string' && item.length <= 1_000_000 && /^(?:data:image\/(?:png|jpeg);base64,)?[A-Za-z0-9+/]+={0,2}$/.test(item));
   const state = evolutionStateResponse(data).state;
   return { state: state === 'unknown' && value ? 'connecting' : state, qrCode: value ? (value.startsWith('data:') ? value : `data:image/png;base64,${value}`) : null };
+}
+
+export function evolutionInstancesResponse(data) {
+  const rows = Array.isArray(data) ? data : Array.isArray(data?.instances) ? data.instances : Array.isArray(data?.data) ? data.data : [];
+  return rows.map(row => {
+    const instance = row?.instance && typeof row.instance === 'object' ? row.instance : row;
+    const string = value => typeof value === 'string' ? value.slice(0, 300) : '';
+    return {
+      id: string(instance?.instanceId ?? instance?.id),
+      name: string(instance?.instanceName ?? instance?.name),
+      state: evolutionStateResponse({ state: instance?.state ?? instance?.connectionStatus ?? row?.connectionStatus ?? instance?.status }).state,
+      integration: string(instance?.integration),
+      number: string(instance?.number ?? instance?.ownerJid),
+      profileName: string(instance?.profileName),
+      clientName: string(instance?.clientName),
+      createdAt: string(instance?.createdAt ?? instance?.created_at),
+      updatedAt: string(instance?.updatedAt ?? instance?.updated_at),
+      disconnectedAt: string(instance?.disconnectionAt),
+      disconnectionReason: string(instance?.disconnectionReasonCode),
+      token: typeof instance?.token === 'string' && instance.token.length <= 500 ? instance.token : ''
+    };
+  }).filter(instance => instance.name);
+}
+
+export function validateEvolutionCreate(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['name', 'integration', 'number', 'token'].includes(key))) return null;
+  const { name, integration, number = '', token = '' } = body;
+  if (typeof name !== 'string' || name.length > 100 || name.trim() !== name || !/^[a-zA-Z0-9_-](?:[a-zA-Z0-9 _-]{0,98}[a-zA-Z0-9_-])?$/.test(name)) return null;
+  if (integration !== 'WHATSAPP-BAILEYS') return null;
+  if (typeof number !== 'string' || number.length > 20 || (number && !/^\+?\d{8,20}$/.test(number))) return null;
+  if (typeof token !== 'string' || token.length > 500 || token.trim() !== token || /[\u0000-\u001f\u007f]/.test(token)) return null;
+  return { instanceName: name, integration, ...(number ? { number: number.replace(/^\+/, '') } : {}), ...(token ? { token } : {}), qrcode: true };
 }

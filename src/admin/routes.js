@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { equal, token, validHash, verifyPassword } from './auth.js';
 import { configError, editedCompany } from '../config.js';
 import { buildReply, buildDelivery } from '../message.js';
-import { evolutionQrResponse, evolutionStateResponse } from '../evolution.js';
+import { evolutionInstancesResponse, evolutionQrResponse, evolutionStateResponse, validateEvolutionCreate } from '../evolution.js';
 
 export function registerAdmin(app, config, options) {
   const { username, passwordHash, origin, state, imageStore, evolution, evolutionApiKey, now = Date.now, secure = true } = options;
@@ -80,6 +80,40 @@ export function registerAdmin(app, config, options) {
       return company;
     };
     const evolutionKey = company => company.evolutionToken || evolutionApiKey;
+    const evolutionAdminCall = async operation => {
+      if (!evolution || !evolutionApiKey) throw configError(503, 'evolution_unavailable');
+      try { return await operation(evolutionApiKey); }
+      catch (error) {
+        if (error.statusCode) throw error;
+        throw configError(503, 'evolution_unavailable');
+      }
+    };
+    admin.get('/api/evolution/instances', async () => evolutionAdminCall(async key => {
+      const result = await evolution.instances(key);
+      return { instances: evolutionInstancesResponse(result) };
+    }));
+    admin.post('/api/evolution/instances', async request => evolutionAdminCall(async key => {
+      const instance = validateEvolutionCreate(request.body);
+      if (!instance) throw configError(422, 'invalid_evolution_instance');
+      const result = await evolution.createInstance(instance, key);
+      return { ...evolutionQrResponse(result), name: instance.instanceName };
+    }));
+    admin.post('/api/evolution/instances/:instance/connect', async request => evolutionAdminCall(async key => {
+      const result = await evolution.connect(request.params.instance, key);
+      return evolutionQrResponse(result);
+    }));
+    admin.post('/api/evolution/instances/:instance/restart', async request => evolutionAdminCall(async key => {
+      await evolution.restart(request.params.instance, key);
+      return { status: 'restarted' };
+    }));
+    admin.post('/api/evolution/instances/:instance/logout', async request => evolutionAdminCall(async key => {
+      await evolution.logout(request.params.instance, key);
+      return { status: 'disconnected' };
+    }));
+    admin.delete('/api/evolution/instances/:instance', async request => evolutionAdminCall(async key => {
+      await evolution.deleteInstance(request.params.instance, key);
+      return { status: 'deleted' };
+    }));
     const evolutionCall = async (instance, operation) => {
       const company = getCompany(instance);
       if (!evolution || !evolutionKey(company)) throw configError(503, 'evolution_unavailable');
