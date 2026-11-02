@@ -7,6 +7,8 @@ let version;
 let selected;
 let busy = false;
 let latest;
+let companies = [];
+let evolutionInstances = [];
 let previewNumber = 0;
 const evolutionQrs = new Map();
 const status = (text, error = false) => { $('status').textContent = text; $('status').classList.toggle('error', error); };
@@ -37,6 +39,7 @@ async function api(path, { method = 'GET', payload, etag } = {}) {
 }
 function fill(fields) {
   $('image-file').value = ''; $('upload-status').textContent = '';
+  renderEvolutionChoices(fields.instance);
   $('includePrefilledText').checked = fields.includePrefilledText ?? true;
   $('prefilledText').required = $('includePrefilledText').checked && fields.messageFormat !== 'vcard';
   $('prefilled-settings').hidden = fields.messageFormat === 'vcard';
@@ -177,12 +180,26 @@ async function load(instance) {
 }
 async function list() {
   const result = await api('companies');
-  $('company').replaceChildren(...result.data.companies.map(company => {
+  companies = result.data.companies;
+  $('company').replaceChildren(...companies.map(company => {
     const option = document.createElement('option'); option.value = company.instance;
     option.textContent = `${company.displayName}${company.enabled ? '' : ' · desativada'}`; return option;
   }));
   if (selected && original) { $('company').value = selected; showWorkspace(); return; }
-  await load(result.data.companies[0].instance); showWorkspace();
+  await load(companies[0].instance); showWorkspace();
+}
+function renderEvolutionChoices(current) {
+  const select = $('instance');
+  const assignedElsewhere = new Map(companies.filter(company => company.instance !== selected).map(company => [company.instance, company.displayName]));
+  const available = evolutionInstances.filter(instance => !assignedElsewhere.has(instance.name));
+  if (current && !available.some(instance => instance.name === current)) available.unshift({ name: current, profileName: '', unavailable: true });
+  const options = [new Option('Selecione uma instância…', '')];
+  for (const instance of available) {
+    const label = instance.unavailable ? `${instance.name} (não encontrada na lista da Evolution)` : (instance.profileName && instance.profileName !== instance.name ? `${instance.name} · ${instance.profileName}` : instance.name);
+    options.push(new Option(label, instance.name));
+  }
+  select.replaceChildren(...options);
+  select.value = current ?? '';
 }
 function showTab(tab) {
   const service = tab === 'service';
@@ -194,6 +211,8 @@ const evolutionStateLabel = value => ({ open: 'Conectada', connecting: 'Conectan
 async function loadEvolutionInstances() {
   $('evolution-page-status').textContent = 'Carregando instâncias…';
   const result = await api('evolution/instances');
+  evolutionInstances = result.data.instances;
+  renderEvolutionChoices($('instance').value || original?.instance);
   renderEvolutionInstances(result.data.instances);
   $('evolution-page-status').textContent = `${result.data.instances.length} ${result.data.instances.length === 1 ? 'instância encontrada' : 'instâncias encontradas'}.`;
 }
@@ -331,11 +350,14 @@ $('editor').addEventListener('submit', event => { event.preventDefault(); if (!v
   void run(async () => {
     const fields = draft();
     const result = await api(`companies/${encodeURIComponent(selected)}`, { method: 'PUT', payload: fields, etag: version });
-    const option = Array.from($("company").options).find(item => item.value === selected);
-    option.value = fields.instance; selected = fields.instance; $("company").value = selected;
+    selected = fields.instance;
     version = result.etag;
+    await list();
+    selected = fields.instance;
+    $('company').value = selected;
     const refreshed = await api(`companies/${encodeURIComponent(selected)}`);
     original = refreshed.data.fields; version = refreshed.etag; fill(original); $('comparison').hidden = true; latest = null;
+    await loadEvolutionInstances();
     await preview(); status('Alterações salvas e aplicadas.');
   });
 });
@@ -365,6 +387,10 @@ $('release-form').addEventListener('submit', event => {
 $('release-contact').addEventListener('input', () => { $('release-status').textContent = ''; });
 window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
 void run(async () => {
-  try { const result = await api('session'); csrf = result.data.csrf; await list(); }
+  try {
+    const result = await api('session'); csrf = result.data.csrf; await list();
+    try { await loadEvolutionInstances(); }
+    catch { evolutionInstances = []; renderEvolutionChoices(original?.instance); $('instance-help').textContent = 'Não foi possível carregar as instâncias da Evolution. Atualize a lista na aba Instâncias Evolution e tente novamente.'; }
+  }
   catch (error) { if (error.status === 401) status('Entre para continuar.'); else throw error; }
 });
