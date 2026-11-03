@@ -24,7 +24,7 @@ export function registerAdmin(app, config, options) {
   app.register(async admin => {
     admin.addHook('onRequest', async (request, reply) => {
       reply.header('cache-control', 'no-store').header('x-content-type-options', 'nosniff').header('referrer-policy', 'no-referrer');
-      reply.header('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+      reply.header('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
       if (!request.url.startsWith('/admin/api/')) return;
       const mutating = !['GET', 'HEAD'].includes(request.method);
       if (mutating && (request.headers.origin !== origin || !request.headers['content-type']?.startsWith('application/json'))) return reply.code(403).send({ error: 'invalid_origin_or_content_type' });

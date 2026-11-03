@@ -27,6 +27,7 @@ test('login, sessão, CSRF, edição, prévia, expiração e logout', async () =
     assert.equal((await app.inject({ method: 'POST', url: '/admin/api/login', payload: { username: 'admin', password: 'a-long-test-password' } })).statusCode, 403);
     const result = await login();
     assert.equal(result.statusCode, 200);
+    assert.match(result.headers['content-security-policy'], /img-src 'self' https: data:/);
     assert.match(result.headers['set-cookie'], /HttpOnly/);
     assert.match(result.headers['set-cookie'], /Secure/);
     const cookie = result.headers['set-cookie'].split(';')[0];
