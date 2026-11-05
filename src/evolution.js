@@ -1,4 +1,25 @@
 const safeInstancePath = instance => encodeURIComponent(instance);
+export const EVOLUTION_WEBHOOK_URL = 'http://whatsapp-central-bot:3000/webhooks/evolution';
+export const EVOLUTION_WEBHOOK_EVENTS = ['MESSAGES_UPSERT'];
+export const evolutionWebhookConfig = webhookSecret => ({
+  webhook: {
+    enabled: true,
+    url: EVOLUTION_WEBHOOK_URL,
+    byEvents: false,
+    base64: false,
+    events: [...EVOLUTION_WEBHOOK_EVENTS],
+    ...(typeof webhookSecret === 'string' && webhookSecret ? { headers: { 'x-webhook-secret': webhookSecret } } : {})
+  }
+});
+
+const flatEvolutionWebhookConfig = config => ({
+  enabled: config.webhook.enabled,
+  url: config.webhook.url,
+  webhookByEvents: config.webhook.byEvents,
+  webhookBase64: config.webhook.base64,
+  events: config.webhook.events,
+  ...(config.webhook.headers ? { headers: config.webhook.headers } : {})
+});
 
 export function createEvolutionClient({ baseUrl, fetchImpl = fetch, timeoutMs = 8000 }) {
   const request = async (path, key, { method = 'GET', body, timeoutMs: requestTimeout = timeoutMs } = {}) => {
@@ -16,13 +37,22 @@ export function createEvolutionClient({ baseUrl, fetchImpl = fetch, timeoutMs = 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const statusCode = response.status === 401 || response.status === 403 ? 502 : response.status === 404 ? 404 : response.status === 503 ? 503 : 502;
-      throw Object.assign(new Error(response.status === 503 ? 'evolution_service_unavailable' : 'evolution_request_failed'), { statusCode });
+      throw Object.assign(new Error(response.status === 503 ? 'evolution_service_unavailable' : 'evolution_request_failed'), { statusCode, upstreamStatus: response.status });
     }
     return data;
   };
   return {
     instances: key => request('/instance/fetchInstances', key),
     createInstance: (data, key) => request('/instance/create', key, { method: 'POST', body: data, timeoutMs: 30_000 }),
+    setWebhook: async (instance, key, webhookSecret) => {
+      const path = `/webhook/set/${safeInstancePath(instance)}`;
+      const config = evolutionWebhookConfig(webhookSecret);
+      try { return await request(path, key, { method: 'POST', body: config, timeoutMs: 30_000 }); }
+      catch (error) {
+        if (error.upstreamStatus !== 400) throw error;
+        return request(path, key, { method: 'POST', body: flatEvolutionWebhookConfig(config), timeoutMs: 30_000 });
+      }
+    },
     connectionState: (instance, key) => request(`/instance/connectionState/${safeInstancePath(instance)}`, key),
     connect: (instance, key) => request(`/instance/connect/${safeInstancePath(instance)}`, key, { timeoutMs: 30_000 }),
     restart: (instance, key) => request(`/instance/restart/${safeInstancePath(instance)}`, key, { method: 'POST', timeoutMs: 30_000 }),

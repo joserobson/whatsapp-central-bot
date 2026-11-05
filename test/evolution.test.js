@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEvolutionClient, evolutionInstancesResponse, evolutionQrResponse, evolutionStateResponse, validateEvolutionCreate } from '../src/evolution.js';
+import { createEvolutionClient, evolutionInstancesResponse, evolutionQrResponse, evolutionStateResponse, evolutionWebhookConfig, EVOLUTION_WEBHOOK_URL, validateEvolutionCreate } from '../src/evolution.js';
 
 test('cliente Evolution lista, cria, conecta, reinicia, desconecta e exclui instâncias', async () => {
   const requests = [];
@@ -15,6 +15,7 @@ test('cliente Evolution lista, cria, conecta, reinicia, desconecta e exclui inst
   await client.instances('global-key');
   const createData = { instanceName: 'Temporary', integration: 'WHATSAPP-BAILEYS', qrcode: true };
   await client.createInstance(createData, 'global-key');
+  await client.setWebhook('Temporary', 'global-key', 'test-webhook-secret');
   const state = await client.connectionState('Hba Distribuidora', 'global-key');
   const qr = await client.connect('Hba Distribuidora', 'global-key');
   await client.restart('Hba Distribuidora', 'global-key');
@@ -24,6 +25,7 @@ test('cliente Evolution lista, cria, conecta, reinicia, desconecta e exclui inst
   assert.deepEqual(requests.map(request => [request.options.method ?? 'GET', request.url]), [
     ['GET', 'http://evolution:8080/instance/fetchInstances'],
     ['POST', 'http://evolution:8080/instance/create'],
+    ['POST', 'http://evolution:8080/webhook/set/Temporary'],
     ['GET', 'http://evolution:8080/instance/connectionState/Hba%20Distribuidora'],
     ['GET', 'http://evolution:8080/instance/connect/Hba%20Distribuidora'],
     ['POST', 'http://evolution:8080/instance/restart/Hba%20Distribuidora'],
@@ -33,6 +35,10 @@ test('cliente Evolution lista, cria, conecta, reinicia, desconecta e exclui inst
   assert.equal(requests.every(request => request.options.headers.apikey === 'global-key'), true);
   assert.equal(requests[1].options.headers['content-type'], 'application/json');
   assert.deepEqual(JSON.parse(requests[1].options.body), createData);
+  assert.deepEqual(JSON.parse(requests[2].options.body), {
+    webhook: { enabled: true, url: EVOLUTION_WEBHOOK_URL, byEvents: false, base64: false, events: ['MESSAGES_UPSERT'], headers: { 'x-webhook-secret': 'test-webhook-secret' } }
+  });
+  assert.deepEqual(evolutionWebhookConfig('test-webhook-secret').webhook.events, ['MESSAGES_UPSERT']);
   assert.equal(evolutionStateResponse(state).state, 'open');
   assert.deepEqual(evolutionQrResponse(qr), { state: 'connecting', qrCode: 'data:image/png;base64,aGVsbG8=' });
 });
@@ -49,6 +55,24 @@ test('listagem retorna somente os campos de instância escolhidos e token para c
     number: '5511999999999', profileName: 'Distri', clientName: '', createdAt: '2026-11-02T10:00:00Z',
     updatedAt: '', disconnectedAt: '', disconnectionReason: '401', token: 'instance-secret'
   }]);
+});
+
+test('cliente tenta o formato plano quando Evolution rejeita o envelope webhook', async () => {
+  const requests = [];
+  const client = createEvolutionClient({
+    baseUrl: 'http://evolution:8080',
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return requests.length === 1
+        ? { ok: false, status: 400, json: async () => ({}) }
+        : { ok: true, json: async () => ({}) };
+    }
+  });
+  await client.setWebhook('Nova', 'global-key', 'test-secret');
+  assert.equal(requests.length, 2);
+  assert.deepEqual(JSON.parse(requests[0].options.body).webhook.events, ['MESSAGES_UPSERT']);
+  assert.equal(JSON.parse(requests[1].options.body).webhookByEvents, false);
+  assert.deepEqual(JSON.parse(requests[1].options.body).headers, { 'x-webhook-secret': 'test-secret' });
 });
 
 test('criação de instância aceita apenas campos válidos e nunca cria Business sem seus dados', () => {

@@ -307,6 +307,13 @@ $('preview-button').addEventListener('click', () => void run(preview));
 $('service-tab').addEventListener('click', () => showTab('service'));
 $('evolution-tab').addEventListener('click', () => { showTab('evolution'); void run(loadEvolutionInstances); });
 $('refresh-evolution').addEventListener('click', () => void run(loadEvolutionInstances));
+$('configure-evolution-webhooks').addEventListener('click', () => void run(async () => {
+  const result = await api('evolution/webhooks/configure', { method: 'POST' });
+  const { total, configured, failures } = result.data;
+  $('evolution-page-status').textContent = failures.length
+    ? `Webhook configurado em ${configured} de ${total} instâncias. Falha em: ${failures.map(item => item.name).join(', ')}.`
+    : `Webhook configurado em ${configured} instâncias.`;
+}));
 $('toggle-new-token').addEventListener('click', () => { const input = $('new-instance-token'); const visible = input.type === 'text'; input.type = visible ? 'password' : 'text'; $('toggle-new-token').textContent = visible ? 'Mostrar' : 'Ocultar'; });
 $('create-instance-form').addEventListener('submit', event => { event.preventDefault();
   const payload = { name: $('new-instance-name').value, integration: 'WHATSAPP-BAILEYS', number: $('new-instance-number').value, token: $('new-instance-token').value };
@@ -314,7 +321,7 @@ $('create-instance-form').addEventListener('submit', event => { event.preventDef
     const result = await api('evolution/instances', { method: 'POST', payload });
     if (result.data.qrCode) evolutionQrs.set(result.data.name, result.data.qrCode);
     $('create-instance-form').reset(); $('new-instance-token').type = 'password'; $('toggle-new-token').textContent = 'Mostrar';
-    await loadEvolutionInstances(); status('Instância criada na Evolution.');
+    await loadEvolutionInstances(); status(result.data.webhookConfigured ? 'Instância criada e webhook configurado.' : 'Instância criada, mas não foi possível configurar o webhook. Use “Configurar webhook em todas” para tentar novamente.', !result.data.webhookConfigured);
   });
 });
 $('upload-image').addEventListener('click', () => void run(async () => {

@@ -175,13 +175,14 @@ test('aba Evolution protege operações e retorna campos permitidos para instân
   const evolution = {
     instances: async key => { calls.push(['instances', key]); return [{ id: 'id-1', name: 'Teste', connectionStatus: 'open', integration: 'WHATSAPP-BAILEYS', token: 'instance-token', secretField: 'private-field' }]; },
     createInstance: async (body, key) => { calls.push(['create', key, body]); return { instance: { instanceName: body.instanceName }, qrcode: { base64: 'aGVsbG8=' } }; },
+    setWebhook: async (name, key, body) => { calls.push(['webhook', key, name, body]); },
     connect: async (name, key) => { calls.push(['connect', key, name]); return { base64: 'aGVsbG8=' }; },
     restart: async (name, key) => { calls.push(['restart', key, name]); },
     logout: async (name, key) => { calls.push(['logout', key, name]); },
     deleteInstance: async (name, key) => { calls.push(['delete', key, name]); }
   };
   const origin = 'https://panel.example';
-  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin, evolution, evolutionApiKey: 'global-secret' } });
+  const app = createApp({ config, state, worker: { snapshot: () => ({}) }, webhookSecret: 'test-webhook-secret-123', admin: { enabled: true, username: 'admin', passwordHash: await hashPassword('a-long-test-password'), origin, evolution, evolutionApiKey: 'global-secret' } });
   try {
     assert.equal((await app.inject('/admin/api/evolution/instances')).statusCode, 401);
     const login = await app.inject({ method: 'POST', url: '/admin/api/login', headers: { origin }, payload: { username: 'admin', password: 'a-long-test-password' } });
@@ -193,9 +194,13 @@ test('aba Evolution protege operações e retorna campos permitidos para instân
     assert.equal(list.headers['cache-control'], 'no-store');
     assert.equal(list.json().instances[0].token, 'instance-token');
     assert.equal(JSON.stringify(list.json()).includes('secretField'), false);
+    const configured = await app.inject({ method: 'POST', url: '/admin/api/evolution/webhooks/configure', headers, payload: {} });
+    assert.equal(configured.statusCode, 200);
+    assert.deepEqual(configured.json(), { total: 1, configured: 1, failures: [] });
     const created = await app.inject({ method: 'POST', url: '/admin/api/evolution/instances', headers, payload: { name: 'Nova', integration: 'WHATSAPP-BAILEYS' } });
     assert.equal(created.statusCode, 200);
     assert.equal(created.json().qrCode, 'data:image/png;base64,aGVsbG8=');
+    assert.equal(created.json().webhookConfigured, true);
     for (const action of ['connect', 'restart', 'logout']) {
       const result = await app.inject({ method: 'POST', url: `/admin/api/evolution/instances/Teste/${action}`, headers, payload: {} });
       assert.equal(result.statusCode, 200);
@@ -203,9 +208,12 @@ test('aba Evolution protege operações e retorna campos permitidos para instân
     const deleted = await app.inject({ method: 'DELETE', url: '/admin/api/evolution/instances/Teste', headers, payload: {} });
     assert.equal(deleted.statusCode, 200);
     assert.deepEqual(calls.map(call => call.slice(0, 2)), [
-      ['instances', 'global-secret'], ['create', 'global-secret'], ['connect', 'global-secret'], ['restart', 'global-secret'], ['logout', 'global-secret'], ['delete', 'global-secret']
+      ['instances', 'global-secret'], ['instances', 'global-secret'], ['webhook', 'global-secret'], ['create', 'global-secret'], ['webhook', 'global-secret'], ['connect', 'global-secret'], ['restart', 'global-secret'], ['logout', 'global-secret'], ['delete', 'global-secret']
     ]);
-    assert.deepEqual(calls[1][2], { instanceName: 'Nova', integration: 'WHATSAPP-BAILEYS', qrcode: true });
+    assert.equal(calls[2][2], 'Teste');
+    assert.equal(calls[2][3], 'test-webhook-secret-123');
+    assert.equal(calls[4][2], 'Nova');
+    assert.deepEqual(calls[3][2], { instanceName: 'Nova', integration: 'WHATSAPP-BAILEYS', qrcode: true });
   } finally { await app.close(); state.close(); await rm(dir, { recursive: true, force: true }); }
 });
 

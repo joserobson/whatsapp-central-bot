@@ -5,7 +5,7 @@ import { buildReply, buildDelivery } from '../message.js';
 import { evolutionInstancesResponse, evolutionQrResponse, evolutionStateResponse, validateEvolutionCreate } from '../evolution.js';
 
 export function registerAdmin(app, config, options) {
-  const { username, passwordHash, origin, state, imageStore, evolution, evolutionApiKey, now = Date.now, secure = true } = options;
+  const { username, passwordHash, origin, state, imageStore, evolution, evolutionApiKey, webhookSecret, now = Date.now, secure = true } = options;
   if (!username || username.length > 100 || !validHash(passwordHash) || !origin) throw new Error('Configuracao administrativa invalida');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['http:', 'https:'].includes(parsedOrigin.protocol) || (secure && parsedOrigin.protocol !== 'https:')) throw new Error('ADMIN_ORIGIN invalida');
@@ -92,11 +92,29 @@ export function registerAdmin(app, config, options) {
       const result = await evolution.instances(key);
       return { instances: evolutionInstancesResponse(result) };
     }));
+    admin.post('/api/evolution/webhooks/configure', async () => evolutionAdminCall(async key => {
+      const result = await evolution.instances(key);
+      const instances = evolutionInstancesResponse(result);
+      const failures = [];
+      let configured = 0;
+      for (const instance of instances) {
+        try {
+          await evolution.setWebhook(instance.name, key, webhookSecret);
+          configured++;
+        } catch (error) {
+          failures.push({ name: instance.name, error: error.statusCode ? 'webhook_configuration_failed' : 'evolution_unavailable' });
+        }
+      }
+      return { total: instances.length, configured, failures };
+    }));
     admin.post('/api/evolution/instances', async request => evolutionAdminCall(async key => {
       const instance = validateEvolutionCreate(request.body);
       if (!instance) throw configError(422, 'invalid_evolution_instance');
       const result = await evolution.createInstance(instance, key);
-      return { ...evolutionQrResponse(result), name: instance.instanceName };
+      let webhookConfigured = true;
+      try { await evolution.setWebhook(instance.instanceName, key, webhookSecret); }
+      catch { webhookConfigured = false; }
+      return { ...evolutionQrResponse(result), name: instance.instanceName, webhookConfigured };
     }));
     admin.post('/api/evolution/instances/:instance/connect', async request => evolutionAdminCall(async key => {
       const result = await evolution.connect(request.params.instance, key);
